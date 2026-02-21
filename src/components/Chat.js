@@ -383,10 +383,10 @@ export default function Chat({ user, onLogout }) {
     // Base64 is only worth sending when Gemini will actually run Python
     const needsBase64 = !!capturedCsv && wantPythonOnly;
     // Mode selection:
-    //   useTools        — CSV and/or JSON loaded + no Python needed → client-side tools
+    //   useTools        — CSV and/or JSON loaded, or user attached image (for generateImage) + no Python needed → client-side tools
     //   useCodeExecution — Python explicitly needed (regression, histogram, etc.)
     //   else            — Google Search streaming
-    const useTools = (!!sessionCsvRows || !!sessionJsonData) && !wantPythonOnly && !wantCode && !capturedCsv;
+    const useTools = (!!sessionCsvRows || !!sessionJsonData || images.length > 0) && !wantPythonOnly && !wantCode && !capturedCsv;
     const useCodeExecution = wantPythonOnly || wantCode;
 
     // ── Build prompt ─────────────────────────────────────────────────────────
@@ -429,12 +429,15 @@ ${sessionSummary}${slimCsvBlock}
     const jsonPrefix = sessionJsonData?.length
       ? `[YouTube channel JSON loaded: ${sessionJsonData.length} videos. Fields per video may include: videoId, videoUrl, title, description, duration, releaseDate, viewCount, likeCount, commentCount. Use the tools generateImage, plot_metric_vs_time, play_video, and compute_stats_json when the user asks to analyze, plot, play, or get statistics.]\n\n`
       : '';
+    const imageAnchorHint = images.length > 0
+      ? `[The user has attached an image to this message. For generateImage you may omit anchor_image_base64; the attached image will be used as the reference.]\n\n`
+      : '';
 
     // userContent  — displayed in bubble and stored in MongoDB (never contains base64)
     // promptForGemini — sent to the Gemini API (may contain the full prefix)
     const userContent = text || (images.length ? '(Image)' : (csvContext ? '(CSV attached)' : (sessionJsonData ? '(JSON attached)' : '')));
     const nameContext = displayName ? `[The user you are speaking with is: ${displayName}. Address them by name in your first message if this is the start of the conversation.]\n\n` : '';
-    const promptForGemini = nameContext + csvPrefix + jsonPrefix + (text || (images.length ? 'What do you see in this image?' : (sessionJsonData ? 'I have loaded YouTube channel data. You can use the tools to analyze it.' : 'Please analyze this CSV data.')));
+    const promptForGemini = nameContext + csvPrefix + jsonPrefix + imageAnchorHint + (text || (images.length ? 'What do you see in this image?' : (sessionJsonData ? 'I have loaded YouTube channel data. You can use the tools to analyze it.' : 'Please analyze this CSV data.')));
 
     const userMsg = {
       id: `u-${Date.now()}`,
@@ -479,15 +482,18 @@ ${sessionSummary}${slimCsvBlock}
     try {
       if (useTools) {
         const API_BASE = process.env.REACT_APP_API_URL || '';
-        const declarations = sessionJsonData?.length
-          ? [...CSV_TOOL_DECLARATIONS, ...YOUTUBE_JSON_TOOL_DECLARATIONS]
-          : undefined;
+        const imageParts = capturedImages.map((img) => ({ mimeType: img.mimeType, data: img.data }));
+        const declarations = [
+          ...(sessionCsvRows ? CSV_TOOL_DECLARATIONS : []),
+          ...YOUTUBE_JSON_TOOL_DECLARATIONS,
+        ];
         const executeFn = (toolName, args) => {
           if (['generateImage'].includes(toolName)) {
+            const anchorBase64 = args.anchor_image_base64 || imageParts?.[0]?.data || null;
             return fetch(`${API_BASE}/api/generate-image`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ prompt: args.prompt, anchor_image_base64: args.anchor_image_base64 || null }),
+              body: JSON.stringify({ prompt: args.prompt, anchor_image_base64: anchorBase64 }),
             }).then((r) => r.json()).then((data) => data.error ? { error: data.error } : { imageBase64: data.imageBase64, mimeType: data.mimeType || 'image/png' });
           }
           if (['plot_metric_vs_time', 'play_video', 'compute_stats_json'].includes(toolName)) {
@@ -500,7 +506,7 @@ ${sessionSummary}${slimCsvBlock}
           promptForGemini,
           sessionCsvHeaders || (sessionJsonData?.length ? [] : undefined),
           executeFn,
-          declarations ? { toolDeclarations: declarations } : {}
+          { toolDeclarations: declarations }
         );
         fullContent = answer;
         toolCharts = returnedCharts || [];

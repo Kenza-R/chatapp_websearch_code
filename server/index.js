@@ -3,7 +3,24 @@ const express = require('express');
 const { MongoClient, ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
 const cors = require('cors');
-const { YoutubeTranscript } = require('youtube-transcript');
+const TranscriptClient = require('youtube-transcript-api');
+
+let transcriptClientPromise = null;
+function getTranscriptClient() {
+  if (!transcriptClientPromise) {
+    transcriptClientPromise = (async () => {
+      const client = new TranscriptClient({
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
+        },
+      });
+      await client.ready;
+      return client;
+    })();
+  }
+  return transcriptClientPromise;
+}
 
 const app = express();
 app.use(cors());
@@ -349,6 +366,34 @@ app.post('/api/youtube/channel', async (req, res) => {
       if (!nextPageToken) break;
     }
     const ids = videoIds.slice(0, cap);
+    const transcriptById = new Map();
+    try {
+      const client = await getTranscriptClient();
+      let transcripts = null;
+      try {
+        transcripts = await client.bulkGetTranscript(ids);
+      } catch {
+        const results = await Promise.allSettled(ids.map((id) => client.getTranscript(id)));
+        transcripts = results.map((r, i) => (r.status === 'fulfilled' && r.value ? { ...r.value, id: ids[i] } : null));
+      }
+      for (let i = 0; i < (transcripts || []).length; i++) {
+        const t = transcripts[i];
+        if (!t) continue;
+        const videoId = t.id != null ? t.id : ids[i];
+        const segs = t?.tracks?.[0]?.transcript ?? t?.transcript ?? t?.segments ?? (Array.isArray(t) ? t : []);
+        if (Array.isArray(segs) && segs.length) {
+          const text = segs
+            .map((s) => (typeof s === 'string' ? s : s?.text))
+            .filter(Boolean)
+            .join(' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+          if (text) transcriptById.set(videoId, text);
+        }
+      }
+    } catch (e) {
+      console.warn('[transcripts] failed:', e?.message || e);
+    }
     const detailsRes = await fetch(
       `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${ids.join(',')}&key=${YOUTUBE_API_KEY}`
     );
@@ -363,7 +408,7 @@ app.post('/api/youtube/channel', async (req, res) => {
         thumbnailUrl: s.thumbnails?.medium?.url || s.thumbnails?.default?.url || `https://img.youtube.com/vi/${v.id}/mqdefault.jpg`,
         title: s.title || '',
         description: (s.description || '').slice(0, 5000),
-        transcript: null,
+        transcript: transcriptById.get(v.id) || null,
         duration: parseDuration(cd.duration) || cd.duration,
         releaseDate: s.publishedAt || null,
         viewCount: parseInt(st.viewCount, 10) || 0,
@@ -371,19 +416,7 @@ app.post('/api/youtube/channel', async (req, res) => {
         commentCount: parseInt(st.commentCount, 10) || 0,
       };
     });
-    // Best-effort: fetch transcripts when available (unofficial API; may fail or be rate-limited)
-    const videosWithTranscripts = await Promise.all(
-      videos.map(async (video) => {
-        try {
-          const chunks = await YoutubeTranscript.fetchTranscript(video.videoId);
-          const text = chunks.map((c) => c.text).join(' ').trim();
-          return { ...video, transcript: text || null };
-        } catch {
-          return { ...video };
-        }
-      })
-    );
-    res.json({ channelId, channelTitle, videos: videosWithTranscripts });
+    res.json({ channelId, channelTitle, videos });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message || 'YouTube API error' });

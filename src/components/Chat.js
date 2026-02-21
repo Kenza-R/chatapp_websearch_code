@@ -132,12 +132,14 @@ export default function Chat({ user, onLogout }) {
   const [streaming, setStreaming] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [openMenuId, setOpenMenuId] = useState(null);
+  /** Last image the user dragged in (for generateImage anchor when model omits it). */
+  const [lastAnchorImage, setLastAnchorImage] = useState(null);
 
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
   const abortRef = useRef(false);
   const fileInputRef = useRef(null);
-  /** Last user-attached image base64, so generateImage can use it as anchor on follow-up when model omits it. */
+  /** Fallback when lastAnchorImage not set (e.g. follow-up turn). */
   const lastAttachedImageRef = useRef(null);
   // Set to true immediately before setActiveSessionId() is called during a send
   // so the messages useEffect knows to skip the reload (streaming is in progress).
@@ -283,6 +285,7 @@ export default function Chat({ user, onLogout }) {
         }))
       );
       setImages((prev) => [...prev, ...newImages]);
+      setLastAnchorImage(newImages[newImages.length - 1] ?? null);
     }
   };
 
@@ -329,6 +332,7 @@ export default function Chat({ user, onLogout }) {
         }))
       );
       setImages((prev) => [...prev, ...newImages]);
+      setLastAnchorImage(newImages[newImages.length - 1] ?? null);
     }
   };
 
@@ -352,7 +356,9 @@ export default function Chat({ user, onLogout }) {
           })
       )
     );
-    setImages((prev) => [...prev, ...newImages.filter(Boolean)]);
+    const added = newImages.filter(Boolean);
+    setImages((prev) => [...prev, ...added]);
+    if (added.length) setLastAnchorImage(added[added.length - 1]);
   };
 
   const handleStop = () => {
@@ -377,18 +383,19 @@ export default function Chat({ user, onLogout }) {
     }
 
     // ── Routing intent (computed first so we know whether Python/base64 is needed) ──
-    // PYTHON_ONLY = things the client tools genuinely cannot produce
     const PYTHON_ONLY_KEYWORDS = /\b(regression|scatter|histogram|seaborn|matplotlib|numpy|time.?series|heatmap|box.?plot|violin|distribut|linear.?model|logistic|forecast|trend.?line)\b/i;
+    const WANT_IMAGE_TOOL =
+      /\b(generate|create|draw|make)\b.*\b(image|picture|logo|diagram|illustration)\b/i;
     const wantPythonOnly = PYTHON_ONLY_KEYWORDS.test(text);
     const wantCode = CODE_KEYWORDS.test(text) && !sessionCsvRows;
+    const wantImageTool = WANT_IMAGE_TOOL.test(text);
     const capturedCsv = csvContext;
-    // Base64 is only worth sending when Gemini will actually run Python
     const needsBase64 = !!capturedCsv && wantPythonOnly;
-    // Mode selection:
-    //   useTools        — CSV and/or JSON loaded, or user attached image (for generateImage) + no Python needed → client-side tools
-    //   useCodeExecution — Python explicitly needed (regression, histogram, etc.)
-    //   else            — Google Search streaming
-    const useTools = (!!sessionCsvRows || !!sessionJsonData || images.length > 0) && !wantPythonOnly && !wantCode && !capturedCsv;
+    // allow tools if: user wants image tool OR has CSV/JSON tools context
+    const useTools =
+      (wantImageTool || !!sessionCsvRows || !!sessionJsonData) &&
+      !wantPythonOnly &&
+      !wantCode;
     const useCodeExecution = wantPythonOnly || wantCode;
 
     // ── Build prompt ─────────────────────────────────────────────────────────
@@ -486,20 +493,24 @@ ${sessionSummary}${slimCsvBlock}
         const API_BASE = process.env.REACT_APP_API_URL || '';
         const imageParts = capturedImages.map((img) => ({ mimeType: img.mimeType, data: img.data }));
         if (imageParts.length) lastAttachedImageRef.current = imageParts[imageParts.length - 1]?.data ?? lastAttachedImageRef.current;
-        const declarations = [
-          ...(sessionCsvRows ? CSV_TOOL_DECLARATIONS : []),
-          ...YOUTUBE_JSON_TOOL_DECLARATIONS,
-        ];
+        const declarations = [...CSV_TOOL_DECLARATIONS, ...YOUTUBE_JSON_TOOL_DECLARATIONS];
         const executeFn = (toolName, args) => {
-          if (['generateImage'].includes(toolName)) {
-            let anchorBase64 = args.anchor_image_base64 ?? null;
-            if (!anchorBase64 && capturedImages[0]) anchorBase64 = capturedImages[0].data;
-            if (!anchorBase64) anchorBase64 = imageParts[imageParts.length - 1]?.data ?? lastAttachedImageRef.current ?? null;
+          if (toolName === 'generateImage') {
+            const anchor =
+              args.anchor_image_base64 ||
+              capturedImages?.[0]?.data ||
+              null;
             return fetch(`${API_BASE}/api/generate-image`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ prompt: args.prompt, anchor_image_base64: anchorBase64 }),
-            }).then((r) => r.json()).then((data) => data.error ? { error: data.error } : { imageBase64: data.imageBase64, mimeType: data.mimeType || 'image/png' });
+              body: JSON.stringify({ prompt: args.prompt, anchor_image_base64: anchor }),
+            })
+              .then((r) => r.json())
+              .then((data) =>
+                data.error
+                  ? { error: data.error }
+                  : { imageBase64: data.imageBase64, mimeType: data.mimeType || 'image/png' }
+              );
           }
           if (['plot_metric_vs_time', 'play_video', 'compute_stats_json'].includes(toolName)) {
             return executeYoutubeJsonTool(toolName, args, sessionJsonData || []);

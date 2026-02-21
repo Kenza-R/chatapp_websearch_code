@@ -391,9 +391,9 @@ export default function Chat({ user, onLogout }) {
     const wantCode = CODE_KEYWORDS.test(text) && !sessionCsvRows;
     const capturedCsv = csvContext;
     const needsBase64 = !!capturedCsv && wantPythonOnly;
-    // Let tools run for image generation even without JSON/CSV
+    // Let tools run for image generation even with only an uploaded image (or JSON/CSV)
     const useTools =
-      (wantImageTool || !!sessionCsvRows || !!sessionJsonData) &&
+      (wantImageTool || !!sessionCsvRows || !!sessionJsonData || images.length > 0) &&
       !wantPythonOnly &&
       !wantCode;
     const useCodeExecution = wantPythonOnly || wantCode;

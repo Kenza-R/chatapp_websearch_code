@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { createUser, findUser } from '../services/mongoApi';
+import { createUser, findUser, getApiBase } from '../services/mongoApi';
 import './Auth.css';
 
 export default function Auth({ onLogin }) {
@@ -32,6 +32,16 @@ export default function Auth({ onLogin }) {
         onLogin(user);
       }
     } catch (err) {
+      const isNetworkError = err.message === 'Failed to fetch' || err.name === 'TypeError';
+      if (isNetworkError) {
+        const base = getApiBase();
+        setError(
+          base
+            ? `Cannot reach the backend at ${base}. Check that it is live and the URL is correct, then redeploy the frontend.`
+            : 'Backend URL is not set. On Render: Frontend → Environment → add REACT_APP_API_URL = your backend URL (e.g. https://chatapp-websearch-code-ehui.onrender.com) → Save → Manual Deploy.'
+        );
+        return;
+      }
       try {
         const j = JSON.parse(err.message);
         setError(j.error || err.message);

@@ -1,11 +1,29 @@
-# Chat App
+# Chat App — HW5 YouTube AI Chat Assistant
 
-A React chatbot with Gemini AI, user auth, MongoDB persistence, and client-side data analysis. Glassmorphism UI with streaming responses, CSV upload, code execution, and interactive charts.
+A React chatbot with Gemini AI, user auth, MongoDB persistence, YouTube channel data download, JSON/CSV drag-and-drop, and chat tools (generateImage, plot_metric_vs_time, play_video, compute_stats_json). Glassmorphism UI with streaming responses and interactive charts.
 
 ## Submission (Canvas)
 
 Code is pushed to GitHub. Submit this repository URL on Canvas for the assignment:  
 **https://github.com/Kenza-R/chatapp_websearch_code**
+
+---
+
+## HW5 Assignment Requirements (Rubric Checklist)
+
+| # | Requirement | Where to verify |
+|---|-------------|-----------------|
+| **1. Chat personalization (10)** | First + Last Name on Create Account, saved in DB, in chat context, AI addresses user by name | **Auth:** `src/components/Auth.js` — First Name / Last Name inputs. **Backend:** `server/index.js` — `firstName`, `lastName` in POST `/api/users` and in login response. **Chat:** `src/components/Chat.js` — `displayName` from `user.firstName`/`lastName`; name injected into prompt. **DB:** `users` collection has `firstName`, `lastName`. |
+| **2. YouTube Channel Data Download tab (20)** | Tab with channel URL, max videos, progress bar, JSON download; Veritasium sample in public | **Tab:** `src/App.js` — "YouTube Channel Download" tab. **UI:** `src/components/YouTubeChannelDownload.js` — URL input, max videos (default 10, max 100), progress bar, Download JSON. **Backend:** `server/index.js` — POST `/api/youtube/channel`. **Sample:** `public/veritasium_10.json`. |
+| **3. JSON chat input (10)** | Drag JSON into chat, load into context, save locally; prompt describes JSON | **Chat:** `src/components/Chat.js` — JSON in `handleDrop`/`handleFileSelect`; `sessionJsonData`, `jsonContextName`; drop overlay says "Drop CSV, **JSON**, or images". **Prompt:** `public/prompt_chat.txt` — "receive JSON files of YouTube channel data". |
+| **4. Tool generateImage (10)** | Image from text + anchor image; display + download + lightbox; in prompt | **Tools:** `src/services/youtubeJsonTools.js` — `generateImage` declaration. **Backend:** `server/index.js` — POST `/api/generate-image`. **UI:** `src/components/GeneratedImage.js` — display, download, enlarge (lightbox). **Prompt:** `public/prompt_chat.txt` — "1) generateImage — Image generation from a text prompt and an optional anchor/reference image...". |
+| **5. Tool plot_metric_vs_time (15)** | Plot metric vs time from channel JSON; React chart in chat; enlarge + download | **Tools:** `src/services/youtubeJsonTools.js` — `plot_metric_vs_time`, returns `_chartType: 'metric_vs_time'`. **UI:** `src/components/MetricVsTimeChart.js` — Recharts line chart, enlarge on click, Download CSV. **Prompt:** `public/prompt_chat.txt` — "2) plot_metric_vs_time — Plot any numeric field...". |
+| **6. Tool play_video (15)** | Clickable card (title + thumbnail) opens YouTube; by title/ordinal/most viewed | **Tools:** `src/services/youtubeJsonTools.js` — `play_video`, returns `_cardType: 'play_video'`. **UI:** `src/components/PlayVideoCard.js` — title, thumbnail, click opens in new tab. **Prompt:** `public/prompt_chat.txt` — "3) play_video — Play or open a YouTube video...". |
+| **7. Tool compute_stats_json (10)** | Mean, median, std, min, max for numeric fields in channel JSON | **Tools:** `src/services/youtubeJsonTools.js` — `compute_stats_json`. **Prompt:** `public/prompt_chat.txt` — "4) compute_stats_json — Compute mean, median, std, min, and max...". |
+| **8. Prompt engineering (5)** | System prompt: YouTube analyze assistant, JSON files, tools | **Prompt:** `public/prompt_chat.txt` — "You are a YouTube analyze assistant"; "receive JSON files of YouTube channel data"; "have access to tools to analyze the data and generate content"; all four tools (generateImage, plot_metric_vs_time, play_video, compute_stats_json) described. |
+| **9. Proper submission (5)** | Repo pushed, URL submitted | This repo; submit **https://github.com/Kenza-R/chatapp_websearch_code** on Canvas. |
+
+---
 
 ## How It Works
 
@@ -54,6 +72,8 @@ One document per registered user.
 | `username` | string | Lowercase username |
 | `password` | string | bcrypt hash |
 | `email` | string | Email address (optional) |
+| `firstName` | string | First name (from Create Account) |
+| `lastName` | string | Last name (from Create Account) |
 | `createdAt` | string | ISO timestamp |
 
 #### Collection: `sessions`

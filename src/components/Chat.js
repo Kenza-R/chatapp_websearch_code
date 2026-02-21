@@ -137,6 +137,8 @@ export default function Chat({ user, onLogout }) {
   const inputRef = useRef(null);
   const abortRef = useRef(false);
   const fileInputRef = useRef(null);
+  /** Last user-attached image base64, so generateImage can use it as anchor on follow-up when model omits it. */
+  const lastAttachedImageRef = useRef(null);
   // Set to true immediately before setActiveSessionId() is called during a send
   // so the messages useEffect knows to skip the reload (streaming is in progress).
   const justCreatedSessionRef = useRef(false);
@@ -483,13 +485,16 @@ ${sessionSummary}${slimCsvBlock}
       if (useTools) {
         const API_BASE = process.env.REACT_APP_API_URL || '';
         const imageParts = capturedImages.map((img) => ({ mimeType: img.mimeType, data: img.data }));
+        if (imageParts.length) lastAttachedImageRef.current = imageParts[imageParts.length - 1]?.data ?? lastAttachedImageRef.current;
         const declarations = [
           ...(sessionCsvRows ? CSV_TOOL_DECLARATIONS : []),
           ...YOUTUBE_JSON_TOOL_DECLARATIONS,
         ];
         const executeFn = (toolName, args) => {
           if (['generateImage'].includes(toolName)) {
-            const anchorBase64 = args.anchor_image_base64 || imageParts?.[0]?.data || null;
+            let anchorBase64 = args.anchor_image_base64 ?? null;
+            if (!anchorBase64 && capturedImages[0]) anchorBase64 = capturedImages[0].data;
+            if (!anchorBase64) anchorBase64 = imageParts[imageParts.length - 1]?.data ?? lastAttachedImageRef.current ?? null;
             return fetch(`${API_BASE}/api/generate-image`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },

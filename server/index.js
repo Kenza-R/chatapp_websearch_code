@@ -3,6 +3,7 @@ const express = require('express');
 const { MongoClient, ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
 const cors = require('cors');
+const { YoutubeTranscript } = require('youtube-transcript');
 
 const app = express();
 app.use(cors());
@@ -370,7 +371,19 @@ app.post('/api/youtube/channel', async (req, res) => {
         commentCount: parseInt(st.commentCount, 10) || 0,
       };
     });
-    res.json({ channelId, channelTitle, videos });
+    // Best-effort: fetch transcripts when available (unofficial API; may fail or be rate-limited)
+    const videosWithTranscripts = await Promise.all(
+      videos.map(async (video) => {
+        try {
+          const chunks = await YoutubeTranscript.fetchTranscript(video.videoId);
+          const text = chunks.map((c) => c.text).join(' ').trim();
+          return { ...video, transcript: text || null };
+        } catch {
+          return { ...video };
+        }
+      })
+    );
+    res.json({ channelId, channelTitle, videos: videosWithTranscripts });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message || 'YouTube API error' });

@@ -125,14 +125,16 @@ export const streamChat = async function* (history, newMessage, imageParts = [],
 // Gemini picks a tool + args → executeFn runs it client-side (free) → Gemini
 // receives the result and returns a natural-language answer.
 //
-// executeFn(toolName, args) → plain JS object with the result
+// executeFn(toolName, args) → plain JS object with the result (may be a Promise)
+// options.toolDeclarations: optional array to merge with or replace CSV tools (e.g. YouTube JSON tools)
 // Returns the final text response from the model.
 
-export const chatWithCsvTools = async (history, newMessage, csvHeaders, executeFn) => {
+export const chatWithCsvTools = async (history, newMessage, csvHeaders, executeFn, options = {}) => {
   const systemInstruction = await loadSystemPrompt();
+  const toolDeclarations = options.toolDeclarations || CSV_TOOL_DECLARATIONS;
   const model = genAI.getGenerativeModel({
     model: MODEL,
-    tools: [{ functionDeclarations: CSV_TOOL_DECLARATIONS }],
+    tools: [{ functionDeclarations: toolDeclarations }],
   });
 
   const baseHistory = history.map((m) => ({
@@ -153,7 +155,7 @@ export const chatWithCsvTools = async (history, newMessage, csvHeaders, executeF
 
   const chat = model.startChat({ history: chatHistory });
 
-  // Include column names so the model can match user intent to exact column names
+  // Include column names and/or JSON context so the model can match user intent
   const msgWithContext = csvHeaders?.length
     ? `[CSV columns: ${csvHeaders.join(', ')}]\n\n${newMessage}`
     : newMessage;
@@ -172,14 +174,14 @@ export const chatWithCsvTools = async (history, newMessage, csvHeaders, executeF
 
     const { name, args } = funcCall.functionCall;
     console.log('[CSV Tool]', name, args);
-    const toolResult = executeFn(name, args);
+    const toolResult = await Promise.resolve(executeFn(name, args));
     console.log('[CSV Tool result]', toolResult);
 
     // Log the call for persistence
     toolCalls.push({ name, args, result: toolResult });
 
-    // Capture chart payloads so the UI can render them
-    if (toolResult?._chartType) {
+    // Capture chart payloads, video cards, and generated images for UI
+    if (toolResult?._chartType || toolResult?._cardType || toolResult?.imageBase64) {
       charts.push(toolResult);
     }
 

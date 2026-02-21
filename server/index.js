@@ -47,7 +47,7 @@ app.get('/api/status', async (req, res) => {
 
 app.post('/api/users', async (req, res) => {
   try {
-    const { username, password, email } = req.body;
+    const { username, password, email, firstName, lastName } = req.body;
     if (!username || !password)
       return res.status(400).json({ error: 'Username and password required' });
     const name = String(username).trim().toLowerCase();
@@ -58,6 +58,8 @@ app.post('/api/users', async (req, res) => {
       username: name,
       password: hashed,
       email: email ? String(email).trim().toLowerCase() : null,
+      firstName: firstName ? String(firstName).trim() : null,
+      lastName: lastName ? String(lastName).trim() : null,
       createdAt: new Date().toISOString(),
     });
     res.json({ ok: true });
@@ -76,7 +78,12 @@ app.post('/api/users/login', async (req, res) => {
     if (!user) return res.status(401).json({ error: 'User not found' });
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) return res.status(401).json({ error: 'Invalid password' });
-    res.json({ ok: true, username: name });
+    res.json({
+      ok: true,
+      username: name,
+      firstName: user.firstName || null,
+      lastName: user.lastName || null,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -203,6 +210,170 @@ app.get('/api/messages', async (req, res) => {
     res.json(msgs);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Image generation (for generateImage tool) ─────────────────────────────────
+// Generates an image from text prompt (and optional anchor image). Uses SVG generation
+// so the tool always returns a displayable image (gradient + prompt text); no extra API needed.
+function generateImageFromPrompt(prompt, hasAnchor) {
+  const escaped = String(prompt)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+  const lines = escaped.length > 80 ? escaped.match(/.{1,80}(\s|$)/g) || [escaped] : [escaped];
+  const tspanLines = lines.map((line, i) => `<tspan x="400" dy="${i === 0 ? 0 : 24}">${line}</tspan>`).join('');
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500" viewBox="0 0 800 500">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6366f1"/>
+      <stop offset="100%" style="stop-color:#8b5cf6"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="500" fill="url(#bg)"/>
+  <text x="400" y="220" font-family="Arial,sans-serif" font-size="20" fill="rgba(255,255,255,0.95)" text-anchor="middle">${hasAnchor ? 'Inspired by your image + prompt:' : 'Generated:'}</text>
+  <text x="400" y="260" font-family="Arial,sans-serif" font-size="16" fill="rgba(255,255,255,0.85)" text-anchor="middle">${tspanLines}</text>
+</svg>`;
+  return Buffer.from(svg, 'utf8').toString('base64');
+}
+
+app.post('/api/generate-image', async (req, res) => {
+  try {
+    const { prompt, anchor_image_base64 } = req.body;
+    if (!prompt || typeof prompt !== 'string') {
+      return res.status(400).json({ error: 'prompt required' });
+    }
+    const apiKey = process.env.REACT_APP_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+    let imageBase64 = null;
+    let mimeType = 'image/png';
+
+    if (apiKey) {
+      try {
+        const genAI = require('@google/generative-ai').GoogleGenerativeAI;
+        const gen = new genAI(apiKey);
+        const model = gen.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+        const parts = [{ text: `Generate an image: ${prompt}` }];
+        if (anchor_image_base64) {
+          parts.push({
+            inlineData: { mimeType: 'image/png', data: anchor_image_base64 },
+          });
+        }
+        const result = await model.generateContent(parts);
+        const candidate = result.response?.candidates?.[0];
+        const inlineData = candidate?.content?.parts?.find((p) => p.inlineData);
+        if (inlineData?.inlineData?.data) {
+          imageBase64 = inlineData.inlineData.data;
+          mimeType = inlineData.inlineData.mimeType || 'image/png';
+        }
+      } catch (e) {
+        console.warn('[generate-image] Gemini image gen failed, using SVG fallback:', e.message);
+      }
+    }
+
+    if (!imageBase64) {
+      imageBase64 = generateImageFromPrompt(prompt, !!anchor_image_base64);
+      mimeType = 'image/svg+xml';
+    }
+
+    return res.json({ imageBase64, mimeType });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: err.message || 'Image generation failed' });
+  }
+});
+
+// ── YouTube Channel Data ─────────────────────────────────────────────────────
+const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || process.env.REACT_APP_YOUTUBE_API_KEY;
+
+function parseDuration(iso) {
+  if (!iso || typeof iso !== 'string') return null;
+  const match = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!match) return iso;
+  const h = parseInt(match[1] || 0, 10);
+  const m = parseInt(match[2] || 0, 10);
+  const s = parseInt(match[3] || 0, 10);
+  return `${h > 0 ? h + ':' : ''}${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+app.post('/api/youtube/channel', async (req, res) => {
+  if (!YOUTUBE_API_KEY) {
+    return res.status(503).json({ error: 'YouTube API key not configured. Set YOUTUBE_API_KEY or REACT_APP_YOUTUBE_API_KEY.' });
+  }
+  try {
+    const { channelUrl, maxVideos = 10 } = req.body;
+    const cap = Math.min(Math.max(Number(maxVideos) || 10, 1), 100);
+    let channelId = null;
+    const url = (channelUrl || '').trim();
+    // Handle /@handle or /channel/UC... or ?channel_id=
+    const handleMatch = url.match(/youtube\.com\/@([^/?]+)/);
+    const channelMatch = url.match(/youtube\.com\/channel\/(UC[\w-]+)/);
+    if (channelMatch) {
+      channelId = channelMatch[1];
+    } else if (handleMatch) {
+      const searchRes = await fetch(
+        `https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&q=${encodeURIComponent(handleMatch[1])}&key=${YOUTUBE_API_KEY}`
+      );
+      const searchData = await searchRes.json();
+      const first = searchData.items?.[0];
+      channelId = first?.snippet?.channelId || first?.id?.channelId;
+    }
+    if (!channelId) {
+      return res.status(400).json({ error: 'Could not resolve channel. Use a URL like https://www.youtube.com/@veritasium or https://www.youtube.com/channel/UC...' });
+    }
+    const channelRes = await fetch(
+      `https://www.googleapis.com/youtube/v3/channels?part=contentDetails,snippet&id=${channelId}&key=${YOUTUBE_API_KEY}`
+    );
+    const channelData = await channelRes.json();
+    const uploadsId = channelData.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
+    if (!uploadsId) {
+      return res.status(400).json({ error: 'Channel has no uploads playlist.' });
+    }
+    const channelTitle = channelData.items?.[0]?.snippet?.title || 'Unknown';
+    const videoIds = [];
+    let nextPageToken = '';
+    while (videoIds.length < cap) {
+      const listRes = await fetch(
+        `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails,snippet&playlistId=${uploadsId}&maxResults=50&pageToken=${nextPageToken}&key=${YOUTUBE_API_KEY}`
+      );
+      const listData = await listRes.json();
+      const items = listData.items || [];
+      for (const it of items) {
+        const vid = it.contentDetails?.videoId;
+        if (vid) videoIds.push(vid);
+        if (videoIds.length >= cap) break;
+      }
+      nextPageToken = listData.nextPageToken || '';
+      if (!nextPageToken) break;
+    }
+    const ids = videoIds.slice(0, cap);
+    const detailsRes = await fetch(
+      `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${ids.join(',')}&key=${YOUTUBE_API_KEY}`
+    );
+    const detailsData = await detailsRes.json();
+    const videos = (detailsData.items || []).map((v) => {
+      const s = v.snippet || {};
+      const st = v.statistics || {};
+      const cd = v.contentDetails || {};
+      return {
+        videoId: v.id,
+        videoUrl: `https://www.youtube.com/watch?v=${v.id}`,
+        thumbnailUrl: s.thumbnails?.medium?.url || s.thumbnails?.default?.url || `https://img.youtube.com/vi/${v.id}/mqdefault.jpg`,
+        title: s.title || '',
+        description: (s.description || '').slice(0, 5000),
+        transcript: null,
+        duration: parseDuration(cd.duration) || cd.duration,
+        releaseDate: s.publishedAt || null,
+        viewCount: parseInt(st.viewCount, 10) || 0,
+        likeCount: parseInt(st.likeCount, 10) || 0,
+        commentCount: parseInt(st.commentCount, 10) || 0,
+      };
+    });
+    res.json({ channelId, channelTitle, videos });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message || 'YouTube API error' });
   }
 });
 

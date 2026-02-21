@@ -2,6 +2,11 @@
 
 A React chatbot with Gemini AI, user auth, MongoDB persistence, and client-side data analysis. Glassmorphism UI with streaming responses, CSV upload, code execution, and interactive charts.
 
+## Submission (Canvas)
+
+Code is pushed to GitHub. Submit this repository URL on Canvas for the assignment:  
+**https://github.com/Kenza-R/chatapp_websearch_code**
+
 ## How It Works
 
 - **Frontend (React)** – Login/create account, chat UI with streaming, drag-and-drop CSV/images, Recharts bar charts

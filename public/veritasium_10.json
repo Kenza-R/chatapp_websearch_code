@@ -1,0 +1,32 @@
+{
+  "channelId": "UCsXVk37bltHxD1rDPwtNM8Q",
+  "channelTitle": "Veritasium",
+  "videos": [
+    {
+      "videoId": "sample1",
+      "videoUrl": "https://www.youtube.com/watch?v=sample1",
+      "thumbnailUrl": "https://img.youtube.com/vi/sample1/mqdefault.jpg",
+      "title": "Sample Video 1 - Science Explained",
+      "description": "Sample description.",
+      "transcript": null,
+      "duration": "15:33",
+      "releaseDate": "2025-01-15T00:00:00Z",
+      "viewCount": 1500000,
+      "likeCount": 45000,
+      "commentCount": 3200
+    },
+    {
+      "videoId": "sample2",
+      "videoUrl": "https://www.youtube.com/watch?v=sample2",
+      "thumbnailUrl": "https://img.youtube.com/vi/sample2/mqdefault.jpg",
+      "title": "Sample Video 2 - Physics Demo",
+      "description": "Sample description.",
+      "transcript": null,
+      "duration": "12:00",
+      "releaseDate": "2025-01-10T00:00:00Z",
+      "viewCount": 980000,
+      "likeCount": 28000,
+      "commentCount": 1900
+    }
+  ]
+}

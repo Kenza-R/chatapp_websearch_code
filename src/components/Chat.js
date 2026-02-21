@@ -386,12 +386,12 @@ export default function Chat({ user, onLogout }) {
     const PYTHON_ONLY_KEYWORDS = /\b(regression|scatter|histogram|seaborn|matplotlib|numpy|time.?series|heatmap|box.?plot|violin|distribut|linear.?model|logistic|forecast|trend.?line)\b/i;
     const WANT_IMAGE_TOOL =
       /\b(generate|create|draw|make)\b.*\b(image|picture|logo|diagram|illustration)\b/i;
+    const wantImageTool = WANT_IMAGE_TOOL.test(text);
     const wantPythonOnly = PYTHON_ONLY_KEYWORDS.test(text);
     const wantCode = CODE_KEYWORDS.test(text) && !sessionCsvRows;
-    const wantImageTool = WANT_IMAGE_TOOL.test(text);
     const capturedCsv = csvContext;
     const needsBase64 = !!capturedCsv && wantPythonOnly;
-    // allow tools if: user wants image tool OR has CSV/JSON tools context
+    // Let tools run for image generation even without JSON/CSV
     const useTools =
       (wantImageTool || !!sessionCsvRows || !!sessionJsonData) &&
       !wantPythonOnly &&
@@ -496,10 +496,7 @@ ${sessionSummary}${slimCsvBlock}
         const declarations = [...CSV_TOOL_DECLARATIONS, ...YOUTUBE_JSON_TOOL_DECLARATIONS];
         const executeFn = (toolName, args) => {
           if (toolName === 'generateImage') {
-            const anchor =
-              args.anchor_image_base64 ||
-              capturedImages?.[0]?.data ||
-              null;
+            const anchor = args.anchor_image_base64 || (capturedImages?.[0]?.data ?? null);
             return fetch(`${API_BASE}/api/generate-image`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },

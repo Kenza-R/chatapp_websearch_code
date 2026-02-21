@@ -150,25 +150,14 @@ export function executeYoutubeJsonTool(toolName, args, videos, options = {}) {
 
     case 'play_video': {
       const spec = (args.specifier || '').toLowerCase().trim();
-      const WORD_ORD = {
-        first: 1,
-        second: 2,
-        third: 3,
-        fourth: 4,
-        fifth: 5,
-        sixth: 6,
-        seventh: 7,
-        eighth: 8,
-        ninth: 9,
-        tenth: 10,
-      };
+      const WORD_ORD = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10 };
       let chosen = null;
       const ordWord = WORD_ORD[spec.replace(' video', '')];
-      const ordNum = spec.match(/\b(\d+)(st|nd|rd|th)?\b/);
+      const ordNumMatch = spec.match(/\b(\d+)(st|nd|rd|th)?\b/);
       if (ordWord) {
         chosen = videos[ordWord - 1] || videos[0];
-      } else if (ordNum) {
-        const idx = parseInt(ordNum[1], 10) - 1;
+      } else if (ordNumMatch) {
+        const idx = parseInt(ordNumMatch[1], 10) - 1;
         chosen = videos[idx] || videos[0];
       } else if (spec === 'first' || spec === '1st') {
         chosen = videos[0];

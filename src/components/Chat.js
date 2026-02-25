@@ -636,7 +636,7 @@ ${sessionSummary}${slimCsvBlock}
       {/* ── Sidebar ──────────────────────────────── */}
       <aside className="chat-sidebar">
         <div className="sidebar-top">
-          <h1 className="sidebar-title">Chat</h1>
+          <h1 className="sidebar-title">🍄 Chat</h1>
           <button className="new-chat-btn" onClick={handleNewChat}>
             + New Chat
           </button>

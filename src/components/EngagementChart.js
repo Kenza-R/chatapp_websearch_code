@@ -9,8 +9,8 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 
-const WITH_COLOR = '#818cf8';    // indigo-400
-const WITHOUT_COLOR = '#34d399'; // emerald-400
+const WITH_COLOR = '#c97b63';    /* mushroom cap */
+const WITHOUT_COLOR = '#7d9b76'; /* moss */
 
 function CustomTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;

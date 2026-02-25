@@ -1,8 +1,8 @@
 .youtube-download {
   min-height: 100vh;
   padding: 2rem;
-  background: var(--chat-bg, #0f0f12);
-  color: var(--chat-fg, #e4e4e7);
+  background: var(--mushroom-bg, #161a14);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .youtube-download-card {
@@ -57,7 +57,7 @@
   padding: 0.6rem 1.2rem;
   border-radius: 8px;
   border: none;
-  background: #6366f1;
+  background: var(--mushroom-cap, #c97b63);
   color: white;
   font-weight: 600;
   cursor: pointer;
@@ -78,7 +78,7 @@
 
 .youtube-progress-bar {
   height: 100%;
-  background: #6366f1;
+  background: var(--mushroom-cap, #c97b63);
   transition: width 0.2s ease;
 }
 
@@ -99,7 +99,7 @@
   padding: 0.5rem 1rem;
   border-radius: 6px;
   border: none;
-  background: #22c55e;
+  background: var(--mushroom-moss, #7d9b76);
   color: white;
   cursor: pointer;
 }

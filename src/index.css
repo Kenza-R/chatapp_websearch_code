@@ -1,4 +1,16 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Quicksand:wght@500;600;700&display=swap');
+
+/* Mushroom theme variables */
+:root {
+  --mushroom-cap: #c97b63;
+  --mushroom-cap-light: #e8a090;
+  --mushroom-stem: #e8dcc8;
+  --mushroom-moss: #7d9b76;
+  --mushroom-moss-light: #9bb396;
+  --mushroom-earth: #2d2416;
+  --mushroom-bg: #161a14;
+  --mushroom-forest: #1e2a1c;
+}
 
 * {
   box-sizing: border-box;
@@ -12,19 +24,19 @@ body {
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'Quicksand', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 
-  /* Deep gradient background — glass panels float on top of this */
-  background: #0d1117;
+  /* Forest-floor mushroom gradient */
+  background: var(--mushroom-bg);
   background-image:
-    radial-gradient(ellipse at 20% 50%, rgba(99, 102, 241, 0.18) 0%, transparent 55%),
-    radial-gradient(ellipse at 80% 20%, rgba(139, 92, 246, 0.14) 0%, transparent 50%),
-    radial-gradient(ellipse at 60% 80%, rgba(59, 130, 246, 0.12) 0%, transparent 50%),
-    linear-gradient(160deg, #0d1117 0%, #131929 50%, #0d1230 100%);
+    radial-gradient(ellipse at 20% 30%, rgba(125, 155, 118, 0.25) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 70%, rgba(201, 123, 99, 0.2) 0%, transparent 45%),
+    radial-gradient(ellipse at 50% 50%, rgba(45, 36, 22, 0.4) 0%, transparent 60%),
+    linear-gradient(165deg, #161a14 0%, #1e2a1c 35%, #2d2416 70%, #1a1e16 100%);
   background-attachment: fixed;
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba(255, 255, 255, 0.88);
 }
 
 #root {

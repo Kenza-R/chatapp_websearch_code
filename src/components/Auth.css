@@ -61,15 +61,15 @@
 
 .auth-form input:focus {
   outline: none;
-  border-color: rgba(99, 102, 241, 0.7);
+  border-color: rgba(201, 123, 99, 0.7);
   background: rgba(255, 255, 255, 0.11);
 }
 
 .auth-form button[type='submit'] {
   width: 100%;
   padding: 0.88rem;
-  background: rgba(99, 102, 241, 0.85);
-  border: 1px solid rgba(129, 140, 248, 0.4);
+  background: rgba(201, 123, 99, 0.9);
+  border: 1px solid rgba(232, 160, 144, 0.5);
   border-radius: 12px;
   color: white;
   font-family: 'Inter', sans-serif;
@@ -81,8 +81,8 @@
 }
 
 .auth-form button[type='submit']:hover:not(:disabled) {
-  background: rgba(99, 102, 241, 1);
-  box-shadow: 0 6px 24px rgba(99, 102, 241, 0.45);
+  background: rgba(201, 123, 99, 1);
+  box-shadow: 0 6px 24px rgba(201, 123, 99, 0.5);
 }
 
 .auth-form button[type='submit']:disabled {

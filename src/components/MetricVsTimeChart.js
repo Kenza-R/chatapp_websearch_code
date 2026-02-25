@@ -13,7 +13,7 @@ export default function MetricVsTimeChart({ data, field }) {
         <XAxis dataKey="date" tick={{ fill: 'rgba(255,255,255,0.6)', fontSize: 10 }} />
         <YAxis tick={{ fill: 'rgba(255,255,255,0.6)', fontSize: 10 }} />
         <Tooltip contentStyle={{ background: 'rgba(15,15,35,0.95)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8 }} />
-        <Line type="monotone" dataKey="value" stroke="#6366f1" strokeWidth={2} dot={{ r: 3 }} name={field} />
+        <Line type="monotone" dataKey="value" stroke="#c97b63" strokeWidth={2} dot={{ r: 3 }} name={field} />
       </LineChart>
     </ResponsiveContainer>
   );

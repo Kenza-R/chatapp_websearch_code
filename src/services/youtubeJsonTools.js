@@ -38,13 +38,13 @@ export const YOUTUBE_JSON_TOOL_DECLARATIONS = [
   {
     name: 'play_video',
     description:
-      'Open or play a YouTube video from the loaded channel data. The user can specify by title (e.g. "the asbestos video"), ordinal (e.g. "first video", "third video"), or "most viewed". Display a clickable card with title and thumbnail that opens the video in a new tab.',
+      'Open or play a YouTube video from the loaded channel data. The user can specify by title (e.g. "the asbestos video"), ordinal (e.g. "first", "second", "third", "4th", "#3"), "latest" (first/newest), "last", or "most viewed". Display a clickable card with title and thumbnail that opens the video in a new tab.',
     parameters: {
       type: 'OBJECT',
       properties: {
         specifier: {
           type: 'STRING',
-          description: 'How to pick the video: "first", "last", "most viewed", or a substring of the video title.',
+          description: 'How to pick: "first", "last", "latest", "#N" (e.g. #3), "most viewed", or substring of video title.',
         },
       },
       required: ['specifier'],
@@ -168,6 +168,11 @@ export function executeYoutubeJsonTool(toolName, args, videos, options = {}) {
         chosen = videos[0];
       } else if (/^last$/i.test(clean)) {
         chosen = videos[videos.length - 1];
+      } else if (/^latest$/i.test(clean) || /^latest$/i.test(spec)) {
+        chosen = videos[0];
+      } else if (/^#(\d+)$/.test(spec.trim())) {
+        const n = parseInt(spec.trim().slice(1), 10);
+        chosen = videos[Math.max(0, n - 1)] ?? videos[0];
       } else if (/most\s*viewed/i.test(spec)) {
         chosen = [...videos].sort((a, b) => (b.viewCount || 0) - (a.viewCount || 0))[0];
       } else if (clean || spec) {

@@ -3,7 +3,7 @@ const express = require('express');
 const { MongoClient, ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
 const cors = require('cors');
-const { YoutubeTranscript } = require('youtube-transcript');
+const { YoutubeTranscript } = require('@danielxceron/youtube-transcript');
 
 async function fetchTranscriptForVideo(videoId) {
   try {

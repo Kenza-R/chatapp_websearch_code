@@ -6,7 +6,7 @@
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
-const { YoutubeTranscript } = require('youtube-transcript');
+const { YoutubeTranscript } = require('@danielxceron/youtube-transcript');
 
 async function fetchTranscript(videoId) {
   try {

@@ -2,7 +2,7 @@ const FALLBACK_SVG = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/sv
 
 export default function PlayVideoCard({ videoUrl, title, thumbnailUrl }) {
   const vid = (videoUrl || '').split('v=')[1]?.split('&')[0];
-  const thumb = thumbnailUrl || (vid ? `https://img.youtube.com/vi/${vid}/mqdefault.jpg` : null);
+  const thumb = thumbnailUrl || (vid ? `https://img.youtube.com/vi/${vid}/mqdefault.jpg` : null) || FALLBACK_SVG;
 
   return (
     <div
@@ -11,7 +11,7 @@ export default function PlayVideoCard({ videoUrl, title, thumbnailUrl }) {
       role="button"
       tabIndex={0}
     >
-      <img src={thumb || FALLBACK_SVG} alt={title || 'Video thumbnail'} className="play-video-thumb-img" />
+      <img src={thumb} alt={title} className="play-video-thumb-img" />
       <div className="play-video-body">
         <div className="play-video-title">{title || 'Video'}</div>
         <div className="play-video-hint">Click to open in new tab</div>

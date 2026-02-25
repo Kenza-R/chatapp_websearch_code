@@ -70,10 +70,13 @@ export const YOUTUBE_JSON_TOOL_DECLARATIONS = [
 const FIELD_ALIASES = {
   views: 'viewCount',
   view: 'viewCount',
+  view_count: 'viewCount',
   likes: 'likeCount',
   like: 'likeCount',
+  like_count: 'likeCount',
   comments: 'commentCount',
   comment: 'commentCount',
+  comment_count: 'commentCount',
 };
 
 function resolveFieldName(field, numericFields) {

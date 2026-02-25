@@ -152,24 +152,26 @@ export function executeYoutubeJsonTool(toolName, args, videos, options = {}) {
     }
 
     case 'play_video': {
-      const spec = (args.specifier || '').toLowerCase().trim();
+      const raw = (args.specifier || '').trim();
+      const spec = raw.toLowerCase();
       const WORD_ORD = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10 };
-      let chosen = null;
-      const ordWord = WORD_ORD[spec.replace(' video', '')];
+      const clean = spec.replace(/^(the|play|open)\s+/, '').replace(/\s+video$/i, '').trim();
+      const ordWord = WORD_ORD[clean] ?? WORD_ORD[spec.replace(/\s+video$/i, '')];
       const ordNumMatch = spec.match(/\b(\d+)(st|nd|rd|th)?\b/);
-      if (ordWord) {
-        chosen = videos[ordWord - 1] || videos[0];
+      let chosen = null;
+      if (ordWord != null) {
+        chosen = videos[ordWord - 1] ?? videos[0];
       } else if (ordNumMatch) {
-        const idx = parseInt(ordNumMatch[1], 10) - 1;
-        chosen = videos[idx] || videos[0];
-      } else if (spec === 'first' || spec === '1st') {
+        const idx = Math.max(0, parseInt(ordNumMatch[1], 10) - 1);
+        chosen = videos[idx] ?? videos[0];
+      } else if (/^first$|^1st$/i.test(clean) || spec === 'first' || spec === '1st') {
         chosen = videos[0];
-      } else if (spec === 'last') {
+      } else if (/^last$/i.test(clean)) {
         chosen = videos[videos.length - 1];
-      } else if (spec === 'most viewed') {
+      } else if (/most\s*viewed/i.test(spec)) {
         chosen = [...videos].sort((a, b) => (b.viewCount || 0) - (a.viewCount || 0))[0];
-      } else if (spec) {
-        chosen = videos.find((v) => (v.title || '').toLowerCase().includes(spec)) || videos[0];
+      } else if (clean || spec) {
+        chosen = videos.find((v) => (v.title || '').toLowerCase().includes(clean || spec)) ?? videos[0];
       } else {
         chosen = videos[0];
       }

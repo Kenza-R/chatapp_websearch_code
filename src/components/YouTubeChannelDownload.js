@@ -15,10 +15,9 @@ export default function YouTubeChannelDownload() {
     setError('');
     setResult(null);
     setLoading(true);
-    setProgress(10);
+    setProgress(0);
     try {
-      setProgress(30);
-      const res = await fetch(`${API}/api/youtube/channel`, {
+      const res = await fetch(`${API}/api/youtube/channel-stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -26,11 +25,38 @@ export default function YouTubeChannelDownload() {
           maxVideos: Math.min(100, Math.max(1, Number(maxVideos) || 10)),
         }),
       });
-      setProgress(80);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || res.statusText);
-      setProgress(100);
-      setResult(data);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || res.statusText);
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let finalResult = null;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const msg = JSON.parse(line);
+            if (msg.type === 'progress') setProgress(msg.percent);
+            if (msg.type === 'result') finalResult = msg;
+            if (msg.type === 'error') throw new Error(msg.error);
+          } catch (e) {
+            if (e instanceof SyntaxError) continue;
+            throw e;
+          }
+        }
+      }
+      if (finalResult) {
+        setResult({ channelId: finalResult.channelId, channelTitle: finalResult.channelTitle, videos: finalResult.videos });
+      } else {
+        throw new Error('No result received');
+      }
     } catch (err) {
       setError(err.message || 'Download failed');
       setResult(null);

@@ -6,23 +6,18 @@
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
-const TranscriptClient = require('youtube-transcript-api');
+const { YoutubeTranscript } = require('youtube-transcript');
 
-let transcriptClientPromise = null;
-function getTranscriptClient() {
-  if (!transcriptClientPromise) {
-    transcriptClientPromise = (async () => {
-      const client = new TranscriptClient({
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36',
-        },
-      });
-      await client.ready;
-      return client;
-    })();
+async function fetchTranscript(videoId) {
+  try {
+    const segments = await YoutubeTranscript.fetchTranscript(videoId);
+    if (Array.isArray(segments) && segments.length) {
+      return segments.map((s) => (typeof s === 'string' ? s : s?.text)).filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    }
+  } catch {
+    // Transcript not available
   }
-  return transcriptClientPromise;
+  return null;
 }
 
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || process.env.REACT_APP_YOUTUBE_API_KEY;
@@ -94,27 +89,11 @@ async function fetchVeritasium() {
   );
   const detailsData = await detailsRes.json();
   const transcriptById = new Map();
-  try {
-    const client = await getTranscriptClient();
-    const results = await Promise.allSettled(ids.map((id) => client.getTranscript(id)));
-    for (let i = 0; i < ids.length; i++) {
-      const r = results[i];
-      if (r.status === 'fulfilled' && r.value) {
-        const t = r.value;
-        const segs = t?.tracks?.[0]?.transcript ?? t?.transcript ?? t?.segments ?? (Array.isArray(t) ? t : []);
-        if (Array.isArray(segs) && segs.length) {
-          const text = segs
-            .map((s) => (typeof s === 'string' ? s : s?.text))
-            .filter(Boolean)
-            .join(' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-          if (text) transcriptById.set(ids[i], text);
-        }
-      }
+  const results = await Promise.allSettled(ids.map((id) => fetchTranscript(id)));
+  for (let i = 0; i < ids.length; i++) {
+    if (results[i].status === 'fulfilled' && results[i].value) {
+      transcriptById.set(ids[i], results[i].value);
     }
-  } catch (e) {
-    console.warn('[Transcripts] fetch failed:', e?.message || e);
   }
   const videos = (detailsData.items || []).map((v) => {
     const s = v.snippet || {};

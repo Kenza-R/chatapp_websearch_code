@@ -127,8 +127,32 @@ export default function Chat({ user, onLogout }) {
   const [sessionCsvHeaders, setSessionCsvHeaders] = useState(null); // headers for tool routing
   const [csvDataSummary, setCsvDataSummary] = useState(null);    // auto-computed column stats summary
   const [sessionSlimCsv, setSessionSlimCsv] = useState(null);   // key-columns CSV string sent directly to Gemini
-  const [sessionJsonData, setSessionJsonData] = useState(null); // YouTube channel JSON (array of videos)
-  const [jsonContextName, setJsonContextName] = useState(null); // filename for display
+  const JSON_STORAGE_KEY = 'chatapp_loaded_json';
+  const loadStoredJson = () => {
+    try {
+      const s = localStorage.getItem(JSON_STORAGE_KEY);
+      if (!s) return { data: null, name: null };
+      const parsed = JSON.parse(s);
+      return { data: Array.isArray(parsed?.data) ? parsed.data : null, name: parsed?.name || null };
+    } catch {
+      return { data: null, name: null };
+    }
+  };
+  const [sessionJsonData, setSessionJsonData] = useState(() => loadStoredJson().data);
+  const [jsonContextName, setJsonContextName] = useState(() => loadStoredJson().name);
+  const setLoadedJson = (data, name) => {
+    setSessionJsonData(data);
+    setJsonContextName(name);
+    try {
+      if (data?.length && name) {
+        localStorage.setItem(JSON_STORAGE_KEY, JSON.stringify({ data, name }));
+      } else {
+        localStorage.removeItem(JSON_STORAGE_KEY);
+      }
+    } catch (e) {
+      if (e.name === 'QuotaExceededError') localStorage.removeItem(JSON_STORAGE_KEY);
+    }
+  };
   const [streaming, setStreaming] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [openMenuId, setOpenMenuId] = useState(null);
@@ -191,8 +215,7 @@ export default function Chat({ user, onLogout }) {
     setCsvContext(null);
     setSessionCsvRows(null);
     setSessionCsvHeaders(null);
-    setSessionJsonData(null);
-    setJsonContextName(null);
+    setLoadedJson(null, null);
   };
 
   const handleSelectSession = (sessionId) => {
@@ -203,8 +226,7 @@ export default function Chat({ user, onLogout }) {
     setCsvContext(null);
     setSessionCsvRows(null);
     setSessionCsvHeaders(null);
-    setSessionJsonData(null);
-    setJsonContextName(null);
+    setLoadedJson(null, null);
   };
 
   const handleDeleteSession = async (sessionId, e) => {
@@ -252,11 +274,10 @@ export default function Chat({ user, onLogout }) {
       try {
         const data = JSON.parse(text);
         const videos = Array.isArray(data.videos) ? data.videos : (Array.isArray(data) ? data : []);
-        setSessionJsonData(videos.length ? videos : (Array.isArray(data) ? data : [data]));
-        setJsonContextName(file.name);
+        const arr = videos.length ? videos : (Array.isArray(data) ? data : [data]);
+        setLoadedJson(arr.length ? arr : null, arr.length ? file.name : null);
       } catch {
-        setSessionJsonData(null);
-        setJsonContextName(null);
+        setLoadedJson(null, null);
       }
     }
 
@@ -302,11 +323,10 @@ export default function Chat({ user, onLogout }) {
       try {
         const data = JSON.parse(text);
         const videos = Array.isArray(data.videos) ? data.videos : (Array.isArray(data) ? data : []);
-        setSessionJsonData(videos.length ? videos : (Array.isArray(data) ? data : [data]));
-        setJsonContextName(jsonFiles[0].name);
+        const arr = videos.length ? videos : (Array.isArray(data) ? data : [data]);
+        setLoadedJson(arr.length ? arr : null, arr.length ? jsonFiles[0].name : null);
       } catch {
-        setSessionJsonData(null);
-        setJsonContextName(null);
+        setLoadedJson(null, null);
       }
     }
 
@@ -375,11 +395,11 @@ export default function Chat({ user, onLogout }) {
     let sessionId = activeSessionId;
     if (sessionId === 'new') {
       const title = chatTitle();
-      const { id } = await createSession(username, 'lisa', title);
+      const { id } = await createSession(username, 'youtube-assistant', title);
       sessionId = id;
       justCreatedSessionRef.current = true; // tell useEffect to skip the reload
       setActiveSessionId(id);
-      setSessions((prev) => [{ id, agent: 'lisa', title, createdAt: new Date().toISOString(), messageCount: 0 }, ...prev]);
+      setSessions((prev) => [{ id, agent: 'youtube-assistant', title, createdAt: new Date().toISOString(), messageCount: 0 }, ...prev]);
     }
 
     // ── Routing intent (computed first so we know whether Python/base64 is needed) ──
@@ -680,7 +700,7 @@ ${sessionSummary}${slimCsvBlock}
           {messages.map((m) => (
             <div key={m.id} className={`chat-msg ${m.role}`}>
               <div className="chat-msg-meta">
-                <span className="chat-msg-role">{m.role === 'user' ? displayName : 'Lisa'}</span>
+                <span className="chat-msg-role">{m.role === 'user' ? displayName : 'YouTube Assistant'}</span>
                 <span className="chat-msg-time">
                   {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
@@ -804,7 +824,7 @@ ${sessionSummary}${slimCsvBlock}
               <span className="csv-chip-icon">📋</span>
               <span className="csv-chip-name">{jsonContextName}</span>
               <span className="csv-chip-meta">{sessionJsonData.length} videos</span>
-              <button className="csv-chip-remove" onClick={() => { setSessionJsonData(null); setJsonContextName(null); }} aria-label="Remove JSON">×</button>
+              <button className="csv-chip-remove" onClick={() => setLoadedJson(null, null)} aria-label="Remove JSON">×</button>
             </div>
           )}
 

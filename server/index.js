@@ -3,23 +3,18 @@ const express = require('express');
 const { MongoClient, ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
 const cors = require('cors');
-const TranscriptClient = require('youtube-transcript-api');
+const { YoutubeTranscript } = require('youtube-transcript');
 
-let transcriptClientPromise = null;
-function getTranscriptClient() {
-  if (!transcriptClientPromise) {
-    transcriptClientPromise = (async () => {
-      const client = new TranscriptClient({
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
-        },
-      });
-      await client.ready;
-      return client;
-    })();
+async function fetchTranscriptForVideo(videoId) {
+  try {
+    const segments = await YoutubeTranscript.fetchTranscript(videoId);
+    if (Array.isArray(segments) && segments.length) {
+      return segments.map((s) => (typeof s === 'string' ? s : s?.text)).filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    }
+  } catch {
+    // Transcript not available (disabled, private, or no captions)
   }
-  return transcriptClientPromise;
+  return null;
 }
 
 const app = express();
@@ -232,31 +227,6 @@ app.get('/api/messages', async (req, res) => {
 });
 
 // ── Image generation (for generateImage tool) ─────────────────────────────────
-// Generates an image from text prompt (and optional anchor image). Uses SVG generation
-// so the tool always returns a displayable image (gradient + prompt text); no extra API needed.
-function generateImageFromPrompt(prompt, hasAnchor) {
-  const escaped = String(prompt)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-  const lines = escaped.length > 80 ? escaped.match(/.{1,80}(\s|$)/g) || [escaped] : [escaped];
-  const tspanLines = lines.map((line, i) => `<tspan x="400" dy="${i === 0 ? 0 : 24}">${line}</tspan>`).join('');
-  const svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500" viewBox="0 0 800 500">
-  <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#6366f1"/>
-      <stop offset="100%" style="stop-color:#8b5cf6"/>
-    </linearGradient>
-  </defs>
-  <rect width="800" height="500" fill="url(#bg)"/>
-  <text x="400" y="220" font-family="Arial,sans-serif" font-size="20" fill="rgba(255,255,255,0.95)" text-anchor="middle">${hasAnchor ? 'Inspired by your image + prompt:' : 'Generated:'}</text>
-  <text x="400" y="260" font-family="Arial,sans-serif" font-size="16" fill="rgba(255,255,255,0.85)" text-anchor="middle">${tspanLines}</text>
-</svg>`;
-  return Buffer.from(svg, 'utf8').toString('base64');
-}
-
 app.post('/api/generate-image', async (req, res) => {
   try {
     const { prompt, anchor_image_base64 } = req.body;
@@ -286,13 +256,14 @@ app.post('/api/generate-image', async (req, res) => {
           mimeType = inlineData.inlineData.mimeType || 'image/png';
         }
       } catch (e) {
-        console.warn('[generate-image] Gemini image gen failed, using SVG fallback:', e.message);
+        console.warn('[generate-image] Gemini image gen failed:', e.message);
       }
     }
 
     if (!imageBase64) {
-      imageBase64 = generateImageFromPrompt(prompt, !!anchor_image_base64);
-      mimeType = 'image/svg+xml';
+      return res.status(503).json({
+        error: 'Image generation requires GEMINI_API_KEY. Add REACT_APP_GEMINI_API_KEY or GEMINI_API_KEY to your environment.',
+      });
     }
 
     return res.json({ imageBase64, mimeType });
@@ -367,32 +338,10 @@ app.post('/api/youtube/channel', async (req, res) => {
     }
     const ids = videoIds.slice(0, cap);
     const transcriptById = new Map();
-    try {
-      const client = await getTranscriptClient();
-      let transcripts = null;
-      try {
-        transcripts = await client.bulkGetTranscript(ids);
-      } catch {
-        const results = await Promise.allSettled(ids.map((id) => client.getTranscript(id)));
-        transcripts = results.map((r, i) => (r.status === 'fulfilled' && r.value ? { ...r.value, id: ids[i] } : null));
-      }
-      for (let i = 0; i < (transcripts || []).length; i++) {
-        const t = transcripts[i];
-        if (!t) continue;
-        const videoId = t.id != null ? t.id : ids[i];
-        const segs = t?.tracks?.[0]?.transcript ?? t?.transcript ?? t?.segments ?? (Array.isArray(t) ? t : []);
-        if (Array.isArray(segs) && segs.length) {
-          const text = segs
-            .map((s) => (typeof s === 'string' ? s : s?.text))
-            .filter(Boolean)
-            .join(' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-          if (text) transcriptById.set(videoId, text);
-        }
-      }
-    } catch (e) {
-      console.warn('[transcripts] failed:', e?.message || e);
+    const results = await Promise.allSettled(ids.map((id) => fetchTranscriptForVideo(id)));
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      if (r.status === 'fulfilled' && r.value) transcriptById.set(ids[i], r.value);
     }
     const detailsRes = await fetch(
       `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${ids.join(',')}&key=${YOUTUBE_API_KEY}`
@@ -421,6 +370,104 @@ app.post('/api/youtube/channel', async (req, res) => {
     console.error(err);
     res.status(500).json({ error: err.message || 'YouTube API error' });
   }
+});
+
+// Streaming variant: sends NDJSON lines with progress, then final result
+app.post('/api/youtube/channel-stream', async (req, res) => {
+  if (!YOUTUBE_API_KEY) {
+    return res.status(503).json({ error: 'YouTube API key not configured.' });
+  }
+  res.setHeader('Content-Type', 'application/x-ndjson');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  const send = (obj) => res.write(JSON.stringify(obj) + '\n');
+
+  try {
+    const { channelUrl, maxVideos = 10 } = req.body;
+    const cap = Math.min(Math.max(Number(maxVideos) || 10, 1), 100);
+    send({ type: 'progress', percent: 5, stage: 'Resolving channel' });
+    let channelId = null;
+    const url = (channelUrl || '').trim();
+    const handleMatch = url.match(/youtube\.com\/@([^/?]+)/);
+    const channelMatch = url.match(/youtube\.com\/channel\/(UC[\w-]+)/);
+    if (channelMatch) {
+      channelId = channelMatch[1];
+    } else if (handleMatch) {
+      const searchRes = await fetch(
+        `https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&q=${encodeURIComponent(handleMatch[1])}&key=${YOUTUBE_API_KEY}`
+      );
+      const searchData = await searchRes.json();
+      const first = searchData.items?.[0];
+      channelId = first?.snippet?.channelId || first?.id?.channelId;
+    }
+    if (!channelId) {
+      send({ type: 'error', error: 'Could not resolve channel.' });
+      return res.end();
+    }
+    send({ type: 'progress', percent: 15, stage: 'Fetching video list' });
+    const channelRes = await fetch(
+      `https://www.googleapis.com/youtube/v3/channels?part=contentDetails,snippet&id=${channelId}&key=${YOUTUBE_API_KEY}`
+    );
+    const channelData = await channelRes.json();
+    const uploadsId = channelData.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
+    if (!uploadsId) {
+      send({ type: 'error', error: 'Channel has no uploads playlist.' });
+      return res.end();
+    }
+    const channelTitle = channelData.items?.[0]?.snippet?.title || 'Unknown';
+    const videoIds = [];
+    let nextPageToken = '';
+    while (videoIds.length < cap) {
+      const listRes = await fetch(
+        `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails,snippet&playlistId=${uploadsId}&maxResults=50&pageToken=${nextPageToken}&key=${YOUTUBE_API_KEY}`
+      );
+      const listData = await listRes.json();
+      for (const it of listData.items || []) {
+        const vid = it.contentDetails?.videoId;
+        if (vid) videoIds.push(vid);
+        if (videoIds.length >= cap) break;
+      }
+      nextPageToken = listData.nextPageToken || '';
+      if (!nextPageToken) break;
+    }
+    const ids = videoIds.slice(0, cap);
+    send({ type: 'progress', percent: 25, stage: 'Fetching transcripts' });
+    const transcriptById = new Map();
+    for (let i = 0; i < ids.length; i++) {
+      const text = await fetchTranscriptForVideo(ids[i]);
+      if (text) transcriptById.set(ids[i], text);
+      send({ type: 'progress', percent: 25 + Math.floor(((i + 1) / ids.length) * 35), stage: `Transcripts ${i + 1}/${ids.length}` });
+    }
+    send({ type: 'progress', percent: 65, stage: 'Fetching video details' });
+    const detailsRes = await fetch(
+      `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${ids.join(',')}&key=${YOUTUBE_API_KEY}`
+    );
+    const detailsData = await detailsRes.json();
+    const videos = (detailsData.items || []).map((v) => {
+      const s = v.snippet || {};
+      const st = v.statistics || {};
+      const cd = v.contentDetails || {};
+      return {
+        videoId: v.id,
+        videoUrl: `https://www.youtube.com/watch?v=${v.id}`,
+        thumbnailUrl: s.thumbnails?.medium?.url || s.thumbnails?.default?.url || `https://img.youtube.com/vi/${v.id}/mqdefault.jpg`,
+        title: s.title || '',
+        description: (s.description || '').slice(0, 5000),
+        transcript: transcriptById.get(v.id) || null,
+        duration: parseDuration(cd.duration) || cd.duration,
+        releaseDate: s.publishedAt || null,
+        viewCount: parseInt(st.viewCount, 10) || 0,
+        likeCount: parseInt(st.likeCount, 10) || 0,
+        commentCount: parseInt(st.commentCount, 10) || 0,
+      };
+    });
+    send({ type: 'progress', percent: 100, stage: 'Done' });
+    send({ type: 'result', channelId, channelTitle, videos });
+  } catch (err) {
+    console.error(err);
+    send({ type: 'error', error: err.message || 'YouTube API error' });
+  }
+  res.end();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

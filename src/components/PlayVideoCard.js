@@ -16,7 +16,15 @@ export default function PlayVideoCard({ videoUrl, title, thumbnailUrl }) {
   return (
     <div className="play-video-card" onClick={() => window.open(videoUrl, '_blank', 'noopener,noreferrer')} role="button" tabIndex={0}>
       <div className="play-video-thumb">
-        <img src={imgSrc} alt={title || 'Video thumbnail'} loading="eager" referrerPolicy="no-referrer" onError={handleImgError} />
+        {/* Thumbnail image: in normal flow so it always renders and shows */}
+        <img
+          src={imgSrc}
+          alt={title || 'Video thumbnail'}
+          loading="eager"
+          referrerPolicy="no-referrer"
+          onError={handleImgError}
+          className="play-video-thumb-img"
+        />
         <span className="play-video-icon" aria-hidden>▶</span>
       </div>
       <div className="play-video-title">{title || 'Video'}</div>

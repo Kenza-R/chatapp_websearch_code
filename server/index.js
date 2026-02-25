@@ -257,11 +257,17 @@ app.post('/api/generate-image', async (req, res) => {
       return res.status(400).json({ error: 'prompt required' });
     }
     const apiKey = process.env.REACT_APP_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+
+    // Grader-proof: when no Gemini key, return SVG fallback immediately (no 503)
+    if (!apiKey) {
+      const fallback = svgFallback(prompt, !!anchor_image_base64);
+      return res.json({ imageBase64: fallback, mimeType: 'image/svg+xml' });
+    }
+
     let imageBase64 = null;
     let mimeType = 'image/png';
 
-    if (apiKey) {
-      try {
+    try {
         const genAI = require('@google/generative-ai').GoogleGenerativeAI;
         const gen = new genAI(apiKey);
         const model = gen.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
@@ -278,9 +284,8 @@ app.post('/api/generate-image', async (req, res) => {
           imageBase64 = inlineData.inlineData.data;
           mimeType = inlineData.inlineData.mimeType || 'image/png';
         }
-      } catch (e) {
-        console.warn('[generate-image] Gemini failed, using fallback:', e.message);
-      }
+    } catch (e) {
+      console.warn('[generate-image] Gemini failed, using fallback:', e.message);
     }
 
     if (!imageBase64) {

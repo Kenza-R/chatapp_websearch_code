@@ -986,15 +986,13 @@
 .metric-vs-time-chart .chart-enlarged .chart-enlarged-actions button { padding: 0.5rem 1rem; border-radius: 8px; border: none; background: var(--mushroom-cap, #c97b63); color: white; cursor: pointer; }
 
 /* ── Play video card ─────────────────────────────────────────────────────── */
-
-.play-video-card { display: inline-flex; flex-direction: column; max-width: 360px; min-width: 280px; border-radius: 12px; overflow: hidden; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); cursor: pointer; margin: 0.5rem 0; transition: transform 0.15s, box-shadow 0.15s; }
+/* Layout: small left thumbnail + title/hint on right; click opens new tab */
+.play-video-card { display: inline-flex; flex-direction: row; align-items: center; gap: 1rem; max-width: 480px; min-width: 280px; padding: 0.5rem; border-radius: 12px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); cursor: pointer; margin: 0.5rem 0; transition: transform 0.15s, box-shadow 0.15s; }
 .play-video-card:hover { transform: scale(1.02); box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
-.play-video-thumb { position: relative; min-height: 120px; background: var(--mushroom-earth, #2d2416); overflow: hidden; }
-/* Thumbnail img in normal flow so it always displays; icon overlays on top */
-.play-video-thumb-img { display: block; width: 100%; height: auto; aspect-ratio: 16/9; object-fit: cover; vertical-align: top; }
-.play-video-icon { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center; width: 64px; height: 64px; border-radius: 50%; background: rgba(0,0,0,0.6); font-size: 1.5rem; color: rgba(255,255,255,0.95); pointer-events: none; z-index: 1; }
-.play-video-title { padding: 0.75rem 1rem; font-weight: 600; font-size: 0.95rem; color: #fff; line-height: 1.35; display: block; }
-.play-video-hint { padding: 0 1rem 0.75rem; font-size: 0.75rem; color: rgba(255,255,255,0.5); }
+.play-video-thumb-img { width: 160px; min-width: 160px; height: 90px; object-fit: cover; border-radius: 8px; display: block; flex-shrink: 0; }
+.play-video-body { flex: 1; min-width: 0; }
+.play-video-title { font-weight: 600; font-size: 0.95rem; color: #fff; line-height: 1.35; display: block; margin-bottom: 0.25rem; }
+.play-video-hint { font-size: 0.75rem; color: rgba(255,255,255,0.5); }
 
 /* ── Generated image ─────────────────────────────────────────────────────── */
 

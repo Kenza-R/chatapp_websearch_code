@@ -1,4 +1,5 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const express = require('express');
 const { MongoClient, ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
@@ -30,6 +31,9 @@ async function connect() {
   const client = await MongoClient.connect(URI);
   db = client.db(DB);
   console.log('MongoDB connected');
+  await db.collection('sessions').createIndex({ username: 1, createdAt: -1 }).catch(() => {});
+  const openaiKey = (process.env.OPENAI_API_KEY || '').trim();
+  console.log('[generate-image] OPENAI_API_KEY loaded:', !!openaiKey);
 }
 
 app.get('/', (req, res) => {
@@ -110,8 +114,11 @@ app.get('/api/sessions', async (req, res) => {
     if (!username) return res.status(400).json({ error: 'username required' });
     const sessions = await db
       .collection('sessions')
-      .find({ username })
-      .sort({ createdAt: -1 })
+      .aggregate([
+        { $match: { username } },
+        { $sort: { createdAt: -1 } },
+        { $project: { agent: 1, title: 1, createdAt: 1, messageCount: { $size: { $ifNull: ['$messages', []] } } } },
+      ], { allowDiskUse: true })
       .toArray();
     res.json(
       sessions.map((s) => ({
@@ -119,7 +126,7 @@ app.get('/api/sessions', async (req, res) => {
         agent: s.agent || null,
         title: s.title || null,
         createdAt: s.createdAt,
-        messageCount: (s.messages || []).length,
+        messageCount: s.messageCount || 0,
       }))
     );
   } catch (err) {
@@ -251,51 +258,153 @@ function svgFallback(prompt, hasAnchor) {
 }
 
 app.post('/api/generate-image', async (req, res) => {
+  const errors = [];
   try {
     const { prompt, anchor_image_base64 } = req.body;
     if (!prompt || typeof prompt !== 'string') {
       return res.status(400).json({ error: 'prompt required' });
     }
-    const apiKey = process.env.REACT_APP_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+    console.log('[generate-image] prompt:', prompt.slice(0, 100));
 
-    // Grader-proof: when no Gemini key, return SVG fallback immediately (no 503)
-    if (!apiKey) {
-      const fallback = svgFallback(prompt, !!anchor_image_base64);
-      return res.json({ imageBase64: fallback, mimeType: 'image/svg+xml' });
+    const apiKey = process.env.REACT_APP_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+    const openaiKey = (process.env.OPENAI_API_KEY || '').trim();
+
+    if (!apiKey && !openaiKey) {
+      const fb = svgFallback(prompt, !!anchor_image_base64);
+      return res.json({ imageBase64: fb, mimeType: 'image/svg+xml', fallback: true, error: 'No API keys configured for image generation.' });
     }
 
     let imageBase64 = null;
     let mimeType = 'image/png';
 
-    try {
-        const genAI = require('@google/generative-ai').GoogleGenerativeAI;
-        const gen = new genAI(apiKey);
-        const model = gen.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
-        const parts = [{ text: `Generate an image: ${prompt}` }];
-        if (anchor_image_base64) {
-          parts.push({
-            inlineData: { mimeType: 'image/png', data: anchor_image_base64 },
+    // ── 1) Imagen 4 ──────────────────────────────────────────────────────────
+    if (!imageBase64 && apiKey) {
+      const imagenModels = ['imagen-4.0-generate-001', 'imagen-4.0-fast-generate-001'];
+      for (const modelId of imagenModels) {
+        if (imageBase64) break;
+        try {
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:predict`;
+          const ir = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+            body: JSON.stringify({ instances: [{ prompt }], parameters: { sampleCount: 1, personGeneration: 'allow_all' } }),
+            signal: AbortSignal.timeout(30000),
           });
+          if (!ir.ok) {
+            const t = await ir.text();
+            errors.push(`Imagen ${modelId}: HTTP ${ir.status}`);
+            console.warn(`[generate-image] Imagen ${modelId} HTTP ${ir.status}:`, t.slice(0, 200));
+            continue;
+          }
+          const idata = await ir.json();
+          const pred = idata?.predictions?.[0];
+          const b64 =
+            pred?.bytesBase64Encoded ??
+            pred?.image?.bytesBase64Encoded ??
+            pred?.bytesBase64 ??
+            (typeof pred?.image === 'string' ? pred.image : null) ??
+            (Array.isArray(idata?.data) && idata.data[0]?.b64_json);
+          if (b64 && typeof b64 === 'string') {
+            imageBase64 = b64;
+            mimeType = pred?.mimeType || 'image/png';
+            console.log('[generate-image] ✓ Imagen', modelId);
+            break;
+          }
+          errors.push(`Imagen ${modelId}: no image data in response`);
+        } catch (e) {
+          errors.push(`Imagen ${modelId}: ${e.message}`);
+          console.warn(`[generate-image] Imagen ${modelId}:`, e.message);
         }
-        const result = await model.generateContent(parts);
-        const candidate = result.response?.candidates?.[0];
-        const inlineData = candidate?.content?.parts?.find((p) => p.inlineData);
-        if (inlineData?.inlineData?.data) {
-          imageBase64 = inlineData.inlineData.data;
-          mimeType = inlineData.inlineData.mimeType || 'image/png';
-        }
-    } catch (e) {
-      console.warn('[generate-image] Gemini failed, using fallback:', e.message);
+      }
     }
 
+    // ── 2) Gemini native image generation (REST API — more reliable than SDK) ──
+    if (!imageBase64 && apiKey) {
+      const geminiImageModels = ['gemini-2.0-flash-exp-image-generation', 'gemini-2.5-flash-image', 'gemini-2.5-flash'];
+      for (const modelName of geminiImageModels) {
+        if (imageBase64) break;
+        try {
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+          const contentParts = [{ text: `Generate an image: ${prompt}` }];
+          if (anchor_image_base64) {
+            contentParts.push({ inline_data: { mime_type: 'image/png', data: anchor_image_base64 } });
+          }
+          const gr = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: contentParts }],
+              generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+            }),
+            signal: AbortSignal.timeout(60000),
+          });
+          if (!gr.ok) {
+            const errText = await gr.text();
+            errors.push(`Gemini ${modelName}: HTTP ${gr.status}`);
+            console.warn(`[generate-image] Gemini ${modelName} HTTP ${gr.status}:`, errText.slice(0, 200));
+            continue;
+          }
+          const gdata = await gr.json();
+          const parts = gdata?.candidates?.[0]?.content?.parts || [];
+          const imgPart = parts.find((p) => p.inlineData || p.inline_data);
+          const inlineData = imgPart?.inlineData || imgPart?.inline_data;
+          if (inlineData?.data) {
+            imageBase64 = inlineData.data;
+            mimeType = inlineData.mimeType || inlineData.mime_type || 'image/png';
+            console.log('[generate-image] ✓ Gemini', modelName);
+            break;
+          }
+          errors.push(`Gemini ${modelName}: no image in response`);
+        } catch (e) {
+          errors.push(`Gemini ${modelName}: ${e.message}`);
+          console.warn(`[generate-image] Gemini ${modelName}:`, e.message);
+        }
+      }
+    }
+
+    // ── 3) OpenAI DALL-E 3 ────────────────────────────────────────────────────
+    if (!imageBase64 && openaiKey) {
+      try {
+        console.log('[generate-image] Trying OpenAI DALL-E 3…');
+        const ores = await fetch('https://api.openai.com/v1/images/generations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiKey}` },
+          body: JSON.stringify({ model: 'dall-e-3', prompt, n: 1, size: '1024x1024', response_format: 'b64_json', quality: 'standard' }),
+          signal: AbortSignal.timeout(60000),
+        });
+        const otext = await ores.text();
+        if (ores.ok) {
+          const odata = JSON.parse(otext);
+          const b64 = odata?.data?.[0]?.b64_json;
+          if (b64) {
+            imageBase64 = b64;
+            mimeType = 'image/png';
+            console.log('[generate-image] ✓ OpenAI DALL-E 3');
+          } else {
+            errors.push('OpenAI: response OK but no b64_json');
+            console.warn('[generate-image] OpenAI: response OK but no b64_json');
+          }
+        } else {
+          errors.push(`OpenAI: HTTP ${ores.status} - ${otext.slice(0, 120)}`);
+          console.warn('[generate-image] OpenAI HTTP', ores.status, otext.slice(0, 200));
+        }
+      } catch (e) {
+        errors.push(`OpenAI: ${e.message}`);
+        console.warn('[generate-image] OpenAI:', e.message);
+      }
+    }
+
+    // ── 4) SVG fallback ───────────────────────────────────────────────────────
     if (!imageBase64) {
+      console.warn('[generate-image] All backends failed:', errors.join(' | '));
       imageBase64 = svgFallback(prompt, !!anchor_image_base64);
       mimeType = 'image/svg+xml';
+      return res.json({ imageBase64, mimeType, fallback: true, error: errors.join('; ') || 'All image generation backends failed.' });
     }
 
     return res.json({ imageBase64, mimeType });
   } catch (err) {
-    console.error(err);
+    console.error('[generate-image] Fatal:', err);
     return res.status(500).json({ error: err.message || 'Image generation failed' });
   }
 });
@@ -319,7 +428,11 @@ app.post('/api/youtube/channel', async (req, res) => {
   }
   try {
     const { channelUrl, maxVideos = 10 } = req.body;
-    const cap = Math.min(Math.max(Number(maxVideos) || 10, 1), 100);
+    const requested = Number(maxVideos) || 10;
+    if (requested > 100) {
+      return res.status(400).json({ error: 'The maximum is 100' });
+    }
+    const cap = Math.min(Math.max(requested, 1), 100);
     let channelId = null;
     const url = (channelUrl || '').trim();
     // Handle /@handle or /channel/UC... or ?channel_id=
@@ -411,7 +524,13 @@ app.post('/api/youtube/channel-stream', async (req, res) => {
 
   try {
     const { channelUrl, maxVideos = 10 } = req.body;
-    const cap = Math.min(Math.max(Number(maxVideos) || 10, 1), 100);
+    const requested = Number(maxVideos) || 10;
+    if (requested > 100) {
+      send({ type: 'error', error: 'The maximum is 100' });
+      res.end();
+      return;
+    }
+    const cap = Math.min(Math.max(requested, 1), 100);
     send({ type: 'progress', percent: 5, stage: 'Resolving channel' });
     let channelId = null;
     const url = (channelUrl || '').trim();

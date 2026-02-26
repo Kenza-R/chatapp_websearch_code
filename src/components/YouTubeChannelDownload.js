@@ -3,7 +3,7 @@ import './YouTubeChannelDownload.css';
 
 const API = process.env.REACT_APP_API_URL || '';
 
-export default function YouTubeChannelDownload() {
+export default function YouTubeChannelDownload({ onSendToChat }) {
   const [channelUrl, setChannelUrl] = useState('https://www.youtube.com/@veritasium');
   const [maxVideos, setMaxVideos] = useState(10);
   const [loading, setLoading] = useState(false);
@@ -14,6 +14,15 @@ export default function YouTubeChannelDownload() {
   const handleDownload = async () => {
     setError('');
     setResult(null);
+    const num = Number(maxVideos) || 10;
+    if (num > 100) {
+      setError('The maximum is 100');
+      return;
+    }
+    if (num < 1) {
+      setError('The minimum is 1');
+      return;
+    }
     setLoading(true);
     setProgress(0);
     try {
@@ -22,7 +31,7 @@ export default function YouTubeChannelDownload() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           channelUrl: channelUrl.trim(),
-          maxVideos: Math.min(100, Math.max(1, Number(maxVideos) || 10)),
+          maxVideos: Math.min(100, Math.max(1, num)),
         }),
       });
       if (!res.ok) {
@@ -116,7 +125,14 @@ export default function YouTubeChannelDownload() {
         {result && (
           <div className="youtube-result">
             <p><strong>{result.channelTitle}</strong> — {result.videos?.length ?? 0} videos</p>
-            <button onClick={handleSaveJson}>Download JSON file</button>
+            <div className="youtube-result-actions">
+              {onSendToChat && (
+                <button className="youtube-send-to-chat" onClick={() => onSendToChat(result.channelTitle, result.videos)}>
+                  Send to Chat
+                </button>
+              )}
+              <button onClick={handleSaveJson}>Download JSON file</button>
+            </div>
           </div>
         )}
       </div>

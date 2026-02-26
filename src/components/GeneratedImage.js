@@ -1,8 +1,17 @@
 import { useState } from 'react';
 
-export default function GeneratedImage({ imageBase64, mimeType }) {
+export default function GeneratedImage({ imageBase64, mimeType, fallback, error }) {
   const [enlarged, setEnlarged] = useState(false);
   const src = imageBase64 ? `data:${mimeType || 'image/png'};base64,${imageBase64}` : null;
+
+  if (!src && fallback) {
+    return (
+      <div className="generated-image-wrap generated-image-fallback-only">
+        <p className="generated-image-fallback-msg">{error || 'Image generation is currently unavailable.'}</p>
+      </div>
+    );
+  }
+
   if (!src) return null;
 
   const handleDownload = () => {
@@ -15,6 +24,9 @@ export default function GeneratedImage({ imageBase64, mimeType }) {
 
   return (
     <div className="generated-image-wrap">
+      {fallback && (
+        <p className="generated-image-fallback-note">Image generation unavailable — showing placeholder</p>
+      )}
       <img
         src={src}
         alt="Generated"

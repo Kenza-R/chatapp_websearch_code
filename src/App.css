@@ -8,9 +8,17 @@
 
 .app-tabs {
   min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
   background: var(--mushroom-bg, #161a14);
+  overflow: hidden;
+}
+
+.app-tabs .chat-layout {
+  flex: 1;
+  min-height: 0;
+  height: auto;
 }
 
 .app-tab-bar {

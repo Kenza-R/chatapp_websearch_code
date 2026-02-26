@@ -23,16 +23,33 @@ export const YOUTUBE_JSON_TOOL_DECLARATIONS = [
   {
     name: 'plot_metric_vs_time',
     description:
-      'Plot any numeric field (e.g. viewCount, likeCount, commentCount) vs time for the loaded YouTube channel videos. Use when the user asks to plot, graph, or visualize a metric over time.',
+      'Flexible plotting: (A) metric(s) vs time: use metric_fields. (B) X vs Y scatter (e.g. likes on x, views on y): use x_field and y_field. Fields: viewCount, likeCount, commentCount, likesPer1000Views, commentsPer1000Views. Use max_videos to limit.',
     parameters: {
       type: 'OBJECT',
       properties: {
+        metric_fields: {
+          type: 'ARRAY',
+          items: { type: 'STRING' },
+          description: 'For time-series: one or more metrics vs time.',
+        },
         metric_field: {
           type: 'STRING',
-          description: 'Exact field name from the channel JSON, e.g. viewCount, likeCount, commentCount.',
+          description: 'Legacy: single metric vs time.',
+        },
+        x_field: {
+          type: 'STRING',
+          description: 'For scatter: metric on x-axis (e.g. likeCount for likes on x).',
+        },
+        y_field: {
+          type: 'STRING',
+          description: 'For scatter: metric on y-axis (e.g. viewCount for views on y).',
+        },
+        max_videos: {
+          type: 'NUMBER',
+          description: 'Optional. Limit to N videos. Omit for all.',
         },
       },
-      required: ['metric_field'],
+      required: [],
     },
   },
   {
@@ -77,7 +94,29 @@ const FIELD_ALIASES = {
   comments: 'commentCount',
   comment: 'commentCount',
   comment_count: 'commentCount',
+  likes_per_1000_views: 'likesPer1000Views',
+  likesper1000views: 'likesPer1000Views',
+  comments_per_1000_views: 'commentsPer1000Views',
+  commentsper1000views: 'commentsPer1000Views',
 };
+
+const COMPUTED_FIELDS = new Set(['likesPer1000Views', 'commentsPer1000Views']);
+
+function getValueForField(video, field) {
+  if (field === 'likesPer1000Views') {
+    const v = parseFloat(video.viewCount);
+    const l = parseFloat(video.likeCount);
+    if (!v || v <= 0 || isNaN(l)) return NaN;
+    return (l / v) * 1000;
+  }
+  if (field === 'commentsPer1000Views') {
+    const v = parseFloat(video.viewCount);
+    const c = parseFloat(video.commentCount);
+    if (!v || v <= 0 || isNaN(c)) return NaN;
+    return (c / v) * 1000;
+  }
+  return parseFloat(video[field]);
+}
 
 function resolveFieldName(field, numericFields) {
   const f = (field || '').trim();
@@ -110,8 +149,11 @@ export function executeYoutubeJsonTool(toolName, args, videos, options = {}) {
 
   switch (toolName) {
     case 'compute_stats_json': {
-      const resolved = resolveFieldName(args.field, numericFields);
-      const vals = numericValues(videos, resolved);
+      const rawF = (args.field || '').trim();
+      const resolved = FIELD_ALIASES[rawF.toLowerCase()] || (COMPUTED_FIELDS.has(rawF) ? rawF : resolveFieldName(rawF, numericFields));
+      const vals = COMPUTED_FIELDS.has(resolved)
+        ? videos.map((v) => getValueForField(v, resolved)).filter((v) => !isNaN(v))
+        : numericValues(videos, resolved);
       if (!vals.length) {
         return { error: `No numeric values for field "${resolved}". Try: ${numericFields.slice(0, 8).join(', ')}` };
       }
@@ -130,24 +172,86 @@ export function executeYoutubeJsonTool(toolName, args, videos, options = {}) {
     }
 
     case 'plot_metric_vs_time': {
-      const resolved = resolveFieldName(args.metric_field, numericFields);
-      const withDate = videos
-        .map((v) => ({
-          date: v.releaseDate || v.publishedAt || '',
-          value: parseFloat(v[resolved]),
-        }))
-        .filter((d) => d.date && !isNaN(d.value))
-        .sort((a, b) => new Date(a.date) - new Date(b.date));
-      if (!withDate.length) {
-        return { error: `No date/value data for "${resolved}". Try: ${numericFields.slice(0, 8).join(', ')}` };
+      const resolveOne = (f) => {
+        const alias = FIELD_ALIASES[(f || '').toLowerCase()];
+        if (alias) return alias;
+        if (COMPUTED_FIELDS.has(f)) return f;
+        return numericFields.find((k) => k.toLowerCase() === (f || '').toLowerCase()) || f;
+      };
+
+      const xRaw = (args.x_field || '').trim();
+      const yRaw = (args.y_field || '').trim();
+      if (xRaw && yRaw) {
+        const xField = resolveOne(xRaw);
+        const yField = resolveOne(yRaw);
+        const maxVideos = args.max_videos != null ? Math.max(1, Math.min(Math.floor(Number(args.max_videos)), videos.length)) : null;
+        let subset = videos;
+        if (maxVideos != null) {
+          const byDate = [...videos].sort((a, b) => new Date(b.releaseDate || b.publishedAt || 0) - new Date(a.releaseDate || a.publishedAt || 0));
+          subset = byDate.slice(0, maxVideos);
+        }
+        const points = subset
+          .map((v) => {
+            const x = COMPUTED_FIELDS.has(xField) ? getValueForField(v, xField) : parseFloat(v[xField]);
+            const y = COMPUTED_FIELDS.has(yField) ? getValueForField(v, yField) : parseFloat(v[yField]);
+            if (isNaN(x) || isNaN(y)) return null;
+            return { x, y, label: (v.title || '').slice(0, 40) };
+          })
+          .filter((p) => p != null);
+        if (!points.length) {
+          return { error: `No valid x/y data for ${xField} vs ${yField}.` };
+        }
+        return {
+          _chartType: 'scatter',
+          xField,
+          yField,
+          data: { points },
+        };
       }
+
+      let rawFields = [];
+      if (Array.isArray(args.metric_fields) && args.metric_fields.length) {
+        rawFields = args.metric_fields.map((f) => (typeof f === 'string' ? f : String(f)));
+      } else if (typeof args.metric_field === 'string' && args.metric_field.trim()) {
+        rawFields = [args.metric_field.trim()];
+      } else if (typeof args.metric_fields === 'string' && args.metric_fields.trim()) {
+        rawFields = args.metric_fields.split(/[,\s]+/).map((f) => f.trim()).filter(Boolean);
+      }
+      const resolvedFields = rawFields.map((f) => resolveOne(f));
+      if (!resolvedFields.length) {
+        return { error: `Specify metric_field, metric_fields, or x_field+y_field for scatter. Raw: ${numericFields.slice(0, 8).join(', ')}. Computed: likesPer1000Views, commentsPer1000Views.` };
+      }
+      const maxVideos = args.max_videos != null ? Math.max(1, Math.min(Math.floor(Number(args.max_videos)), videos.length)) : null;
+      let subset = videos;
+      if (maxVideos != null) {
+        const byDate = [...videos].sort((a, b) => new Date(b.releaseDate || b.publishedAt || 0) - new Date(a.releaseDate || a.publishedAt || 0));
+        subset = byDate.slice(0, maxVideos);
+      }
+      const withDate = subset
+        .map((v) => {
+          const row = { date: v.releaseDate || v.publishedAt || '' };
+          for (const rf of resolvedFields) {
+            row[rf] = COMPUTED_FIELDS.has(rf) ? getValueForField(v, rf) : parseFloat(v[rf]);
+          }
+          return row;
+        })
+        .filter((d) => d.date)
+        .sort((a, b) => new Date(a.date) - new Date(b.date));
+      const hasValues = (d) => resolvedFields.some((rf) => !isNaN(d[rf]));
+      const valid = withDate.filter(hasValues);
+      if (!valid.length) {
+        return { error: `No date/value data for ${resolvedFields.join(', ')}. Try: ${numericFields.slice(0, 8).join(', ')}` };
+      }
+      const labels = valid.map((d) => d.date.slice(0, 10));
+      const series = resolvedFields.map((rf) => ({
+        field: rf,
+        values: valid.map((d) => d[rf]),
+      }));
+      const data = { labels, series };
       return {
         _chartType: 'metric_vs_time',
-        field: resolved,
-        data: {
-          labels: withDate.map((d) => d.date.slice(0, 10)),
-          values: withDate.map((d) => d.value),
-        },
+        fields: resolvedFields,
+        data,
       };
     }
 

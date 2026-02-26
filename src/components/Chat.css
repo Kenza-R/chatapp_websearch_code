@@ -2,7 +2,6 @@
 
 .chat-layout {
   display: flex;
-  height: 100vh;
   width: 100%;
   overflow: hidden;
 }
@@ -226,15 +225,21 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-width: 0;
+  background: #1a1e18;
+  position: relative;
+  z-index: 0;
 }
 
 .chat-header {
   padding: 0.9rem 1.5rem;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(30, 38, 28, 0.95);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   flex-shrink: 0;
+  position: relative;
+  z-index: 2;
 }
 
 .chat-header-title {
@@ -259,6 +264,8 @@
   flex-direction: column;
   gap: 0.5rem;
   position: relative;
+  min-height: 0;
+  -webkit-overflow-scrolling: touch;
 }
 
 .chat-messages::-webkit-scrollbar {
@@ -275,9 +282,9 @@
 }
 
 .chat-drop-overlay {
-  position: fixed;
+  position: absolute;
   inset: 0;
-  background: rgba(201, 123, 99, 0.2);
+  background: rgba(201, 123, 99, 0.15);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -286,7 +293,8 @@
   font-weight: 600;
   color: #fff;
   pointer-events: none;
-  z-index: 10;
+  z-index: 1;
+  border-radius: 8px;
 }
 
 /* Message bubbles */
@@ -528,11 +536,13 @@
 
 .chat-input-area {
   padding: 1rem 1.5rem 1.25rem;
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(30, 38, 28, 0.95);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
   flex-shrink: 0;
+  position: relative;
+  z-index: 2;
 }
 
 .chat-image-previews {
@@ -986,10 +996,9 @@
 .metric-vs-time-chart .chart-enlarged .chart-enlarged-actions button { padding: 0.5rem 1rem; border-radius: 8px; border: none; background: var(--mushroom-cap, #c97b63); color: white; cursor: pointer; }
 
 /* ── Play video card ─────────────────────────────────────────────────────── */
-/* Layout: small left thumbnail + title/hint on right; click opens new tab */
-.play-video-card { display: inline-flex; flex-direction: row; align-items: center; gap: 1rem; max-width: 480px; min-width: 280px; padding: 0.5rem; border-radius: 12px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); cursor: pointer; margin: 0.5rem 0; transition: transform 0.15s, box-shadow 0.15s; }
+/* Layout: thumbnail left + title right; img uses thumb; click opens new tab */
+.play-video-card { display: inline-flex; flex-direction: row; align-items: center; gap: 1rem; max-width: 520px; min-width: 300px; padding: 0.75rem; border-radius: 12px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); cursor: pointer; margin: 0.5rem 0; transition: transform 0.15s, box-shadow 0.15s; }
 .play-video-card:hover { transform: scale(1.02); box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
-.play-video-thumb-img { width: 160px; min-width: 160px; height: 90px; object-fit: cover; border-radius: 8px; display: block; flex-shrink: 0; }
 .play-video-body { flex: 1; min-width: 0; }
 .play-video-title { font-weight: 600; font-size: 0.95rem; color: #fff; line-height: 1.35; display: block; margin-bottom: 0.25rem; }
 .play-video-hint { font-size: 0.75rem; color: rgba(255,255,255,0.5); }
@@ -997,6 +1006,9 @@
 /* ── Generated image ─────────────────────────────────────────────────────── */
 
 .generated-image-wrap { margin: 0.75rem 0; }
+.generated-image-fallback-msg { color: rgba(255,255,255,0.9); font-size: 0.95rem; margin: 0; line-height: 1.4; }
+.generated-image-fallback-only { padding: 1rem 1.25rem; background: rgba(248,113,113,0.12); border: 1px solid rgba(248,113,113,0.3); border-radius: 10px; }
+.generated-image-fallback-note { font-size: 0.78rem; color: rgba(248,113,113,0.85); margin: 0 0 0.4rem; }
 .generated-image { max-width: 100%; max-height: 320px; border-radius: 10px; cursor: pointer; display: block; }
 .generated-image.enlarged { max-height: none; }
 .generated-image-actions { display: flex; gap: 0.5rem; margin-top: 0.4rem; }

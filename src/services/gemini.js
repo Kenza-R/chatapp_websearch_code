@@ -3,7 +3,7 @@ import { CSV_TOOL_DECLARATIONS } from './csvTools';
 
 const genAI = new GoogleGenerativeAI(process.env.REACT_APP_GEMINI_API_KEY || '');
 
-const MODEL = 'gemini-2.0-flash';
+const MODEL = process.env.REACT_APP_GEMINI_MODEL || 'gemini-2.5-flash-lite';
 
 const SEARCH_TOOL = { googleSearch: {} };
 const CODE_EXEC_TOOL = { codeExecution: {} };
@@ -181,13 +181,23 @@ export const chatWithCsvTools = async (history, newMessage, csvHeaders, executeF
     toolCalls.push({ name, args, result: toolResult });
 
     // Capture chart payloads, video cards, and generated images for UI
-    if (toolResult?._chartType || toolResult?._cardType || toolResult?.imageBase64) {
+    if (toolResult?._chartType || toolResult?._cardType || toolResult?.imageBase64 || (name === 'generateImage' && (toolResult?.fallback || toolResult?.imageBase64))) {
       charts.push(toolResult);
+    }
+
+    // Send a sanitized result to the model — never include base64 image data or huge payloads
+    let resultForModel = toolResult;
+    if (name === 'generateImage' && (toolResult?.imageBase64 || toolResult?.fallback)) {
+      resultForModel = toolResult.fallback
+        ? { success: false, fallback: true, note: toolResult.error || 'Image generation failed (API quota or model limit). Tell the user image generation is currently unavailable.' }
+        : { success: true, note: 'Image generated and displayed to the user.' };
+    } else if (toolResult?.imageBase64 && !toolResult?.error) {
+      resultForModel = { ...toolResult, imageBase64: undefined, note: 'Image generated.' };
     }
 
     response = (
       await chat.sendMessage([
-        { functionResponse: { name, response: { result: toolResult } } },
+        { functionResponse: { name, response: { result: resultForModel } } },
       ])
     ).response;
   }

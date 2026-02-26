@@ -26,6 +26,7 @@ function App() {
   };
 
   const [activeTab, setActiveTab] = useState('chat');
+  const [youtubeJsonToInject, setYoutubeJsonToInject] = useState(null);
 
   if (user) {
     return (
@@ -44,8 +45,27 @@ function App() {
             YouTube Channel Download
           </button>
         </div>
-        {activeTab === 'chat' && <Chat user={user} onLogout={handleLogout} />}
-        {activeTab === 'youtube' && <YouTubeChannelDownload />}
+        {activeTab === 'chat' && (
+          <Chat
+            user={user}
+            onLogout={handleLogout}
+            youtubeJsonToInject={youtubeJsonToInject}
+            onYoutubeJsonInjected={() => setYoutubeJsonToInject(null)}
+          />
+        )}
+        {activeTab === 'youtube' && (
+          <YouTubeChannelDownload
+            onSendToChat={(channelTitle, videos) => {
+              if (videos?.length && channelTitle) {
+                setYoutubeJsonToInject({
+                  data: videos,
+                  name: `youtube-channel-${String(channelTitle).replace(/[^a-z0-9-]/gi, '_')}`,
+                });
+                setActiveTab('chat');
+              }
+            }}
+          />
+        )}
       </div>
     );
   }

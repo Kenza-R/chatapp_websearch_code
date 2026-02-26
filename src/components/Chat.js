@@ -13,6 +13,7 @@ import {
 } from '../services/mongoApi';
 import EngagementChart from './EngagementChart';
 import MetricVsTimeChart from './MetricVsTimeChart';
+import MetricScatterChart from './MetricScatterChart';
 import PlayVideoCard from './PlayVideoCard';
 import GeneratedImage from './GeneratedImage';
 import './Chat.css';
@@ -114,7 +115,7 @@ function StructuredParts({ parts }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function Chat({ user, onLogout }) {
+export default function Chat({ user, onLogout, youtubeJsonToInject, onYoutubeJsonInjected }) {
   const username = user?.username ?? user ?? '';
   const displayName = [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim() || username;
   const [sessions, setSessions] = useState([]);
@@ -204,6 +205,13 @@ export default function Chat({ user, onLogout }) {
     document.addEventListener('click', handler);
     return () => document.removeEventListener('click', handler);
   }, [openMenuId]);
+
+  useEffect(() => {
+    if (youtubeJsonToInject?.data?.length && youtubeJsonToInject?.name && onYoutubeJsonInjected) {
+      setLoadedJson(youtubeJsonToInject.data, youtubeJsonToInject.name);
+      onYoutubeJsonInjected();
+    }
+  }, [youtubeJsonToInject]);
 
   // ── Session management ──────────────────────────────────────────────────────
 
@@ -405,10 +413,10 @@ export default function Chat({ user, onLogout }) {
     // ── Routing intent (computed first so we know whether Python/base64 is needed) ──
     const PYTHON_ONLY_KEYWORDS = /\b(regression|scatter|histogram|seaborn|matplotlib|numpy|time.?series|heatmap|box.?plot|violin|distribut|linear.?model|logistic|forecast|trend.?line)\b/i;
     const WANT_IMAGE_TOOL =
-      /\b(generate|create|draw|make)\b.*\b(image|picture|logo|diagram|illustration)\b/i;
-    const wantImageTool = WANT_IMAGE_TOOL.test(text);
+      /\b(generate|create|draw|make|design)\b.*\b(image|picture|photo|logo|diagram|illustration|poster|banner|icon)\b|\b(add|put|place)\b.*\b(next to|beside|onto|into|on top|to the|in the)\b/i;
+    const wantImageTool = WANT_IMAGE_TOOL.test(text) || (images.length > 0 && /\b(add|put|place|next to|beside|combine|merge|edit|modify|transform)\b/i.test(text));
     const wantPythonOnly = PYTHON_ONLY_KEYWORDS.test(text);
-    const wantCode = CODE_KEYWORDS.test(text) && !sessionCsvRows;
+    const wantCode = CODE_KEYWORDS.test(text) && !sessionCsvRows && !sessionJsonData;
     const capturedCsv = csvContext;
     const needsBase64 = !!capturedCsv && wantPythonOnly;
     // Let tools run for image generation even with only an uploaded image (or JSON/CSV)
@@ -522,12 +530,23 @@ ${sessionSummary}${slimCsvBlock}
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ prompt: args.prompt, anchor_image_base64: anchor }),
             })
-              .then((r) => r.json())
-              .then((data) =>
-                data.error
-                  ? { error: data.error }
-                  : { imageBase64: data.imageBase64, mimeType: data.mimeType || 'image/png' }
-              );
+              .then(async (r) => {
+                const text = await r.text();
+                let data;
+                try {
+                  data = JSON.parse(text);
+                } catch {
+                  return { error: r.ok ? 'Invalid response from image server' : `Image server error (${r.status})`, fallback: true, imageBase64: null };
+                }
+                if (data.error && !data.imageBase64) return { error: data.error, fallback: true, imageBase64: null };
+                return {
+                  imageBase64: data.imageBase64,
+                  mimeType: data.mimeType || 'image/png',
+                  fallback: !!data.fallback,
+                  error: data.error || undefined,
+                };
+              })
+              .catch((err) => ({ error: err?.message || 'Image generation request failed', fallback: true, imageBase64: null }));
           }
           if (['plot_metric_vs_time', 'play_video', 'compute_stats_json'].includes(toolName)) {
             return executeYoutubeJsonTool(toolName, args, sessionJsonData || []);
@@ -582,7 +601,10 @@ ${sessionSummary}${slimCsvBlock}
         }
       }
     } catch (err) {
-      const errText = `Error: ${err.message}`;
+      const is429 = /429|quota|rate.?limit/i.test(String(err?.message || ''));
+      const errText = is429
+        ? '**Rate limit exceeded.** The API has a 5 RPM / 20 RPD free-tier limit. Please wait 1–2 minutes before sending another message, or try tomorrow when the daily quota resets. You can also set `REACT_APP_GEMINI_MODEL=gemini-3-flash` in `.env` to use a different model with separate quota.'
+        : `Error: ${err.message}`;
       setMessages((m) =>
         m.map((msg) => (msg.id === assistantId ? { ...msg, content: errText } : msg))
       );
@@ -693,8 +715,11 @@ ${sessionSummary}${slimCsvBlock}
 
         <div
           className={`chat-messages${dragOver ? ' drag-over' : ''}`}
+          style={{ position: 'relative' }}
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-          onDragLeave={() => setDragOver(false)}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(false);
+          }}
           onDrop={handleDrop}
         >
           {messages.map((m) => (
@@ -769,12 +794,14 @@ ${sessionSummary}${slimCsvBlock}
               {m.charts?.map((chart, ci) =>
                 chart._chartType === 'engagement' ? (
                   <EngagementChart key={ci} data={chart.data} metricColumn={chart.metricColumn} />
-                ) : chart._chartType === 'metric_vs_time' ? (
-                  <MetricVsTimeChart key={ci} data={chart.data} field={chart.field} />
+                ) :                 chart._chartType === 'metric_vs_time' ? (
+                  <MetricVsTimeChart key={ci} data={chart.data} field={chart.field} fields={chart.fields} />
+                ) : chart._chartType === 'scatter' ? (
+                  <MetricScatterChart key={ci} data={chart.data} xField={chart.xField} yField={chart.yField} />
                 ) : chart._cardType === 'play_video' ? (
                   <PlayVideoCard key={ci} videoUrl={chart.videoUrl} title={chart.title} thumbnailUrl={chart.thumbnailUrl} />
-                ) : chart.imageBase64 ? (
-                  <GeneratedImage key={ci} imageBase64={chart.imageBase64} mimeType={chart.mimeType} />
+                ) : chart.imageBase64 || chart.fallback ? (
+                  <GeneratedImage key={ci} imageBase64={chart.imageBase64} mimeType={chart.mimeType} fallback={chart.fallback} error={chart.error} />
                 ) : null
               )}
 
@@ -801,9 +828,8 @@ ${sessionSummary}${slimCsvBlock}
             </div>
           ))}
           <div ref={bottomRef} />
+          {dragOver && <div className="chat-drop-overlay">Drop CSV, JSON, or images here</div>}
         </div>
-
-        {dragOver && <div className="chat-drop-overlay">Drop CSV, JSON, or images here</div>}
 
         {/* ── Input area ── */}
         <div className="chat-input-area">

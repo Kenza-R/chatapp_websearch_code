@@ -264,7 +264,7 @@ app.post('/api/generate-image', async (req, res) => {
     if (!prompt || typeof prompt !== 'string') {
       return res.status(400).json({ error: 'prompt required' });
     }
-    console.log('[generate-image] prompt:', prompt.slice(0, 100));
+    console.log('[generate-image] prompt:', prompt.slice(0, 100), '| anchor:', !!anchor_image_base64, anchor_image_base64 ? `(${Math.round(anchor_image_base64.length/1024)}KB)` : '');
 
     const apiKey = process.env.REACT_APP_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
     const openaiKey = (process.env.OPENAI_API_KEY || '').trim();
@@ -277,8 +277,8 @@ app.post('/api/generate-image', async (req, res) => {
     let imageBase64 = null;
     let mimeType = 'image/png';
 
-    // ── 1) Imagen 4 ──────────────────────────────────────────────────────────
-    if (!imageBase64 && apiKey) {
+    // ── 1) Imagen 4 (text-to-image only — skip when anchor image is provided) ─
+    if (!imageBase64 && apiKey && !anchor_image_base64) {
       const imagenModels = ['imagen-4.0-generate-001', 'imagen-4.0-fast-generate-001'];
       for (const modelId of imagenModels) {
         if (imageBase64) break;
@@ -325,10 +325,14 @@ app.post('/api/generate-image', async (req, res) => {
         if (imageBase64) break;
         try {
           const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
-          const contentParts = [{ text: `Generate an image: ${prompt}` }];
+          const textPrompt = anchor_image_base64
+            ? `Edit this image according to the following instruction. Keep the original photo intact and modify it as described: ${prompt}`
+            : `Generate an image: ${prompt}`;
+          const contentParts = [];
           if (anchor_image_base64) {
             contentParts.push({ inline_data: { mime_type: 'image/png', data: anchor_image_base64 } });
           }
+          contentParts.push({ text: textPrompt });
           const gr = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

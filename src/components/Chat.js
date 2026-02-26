@@ -163,6 +163,7 @@ export default function Chat({ user, onLogout, youtubeJsonToInject, onYoutubeJso
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
   const abortRef = useRef(false);
+  const abortControllerRef = useRef(null);
   const fileInputRef = useRef(null);
   /** Fallback when lastAnchorImage not set (e.g. follow-up turn). */
   const lastAttachedImageRef = useRef(null);
@@ -391,6 +392,7 @@ export default function Chat({ user, onLogout, youtubeJsonToInject, onYoutubeJso
 
   const handleStop = () => {
     abortRef.current = true;
+    abortControllerRef.current?.abort();
   };
 
   // ── Send message ────────────────────────────────────────────────────────────
@@ -492,8 +494,8 @@ ${sessionSummary}${slimCsvBlock}
     setCsvContext(null);
     setStreaming(true);
 
-    // Store display text only — base64 is never persisted
-    await saveMessage(sessionId, 'user', userContent, capturedImages.length ? capturedImages : null);
+    // Store display text only — skip large base64 images to stay under MongoDB 16MB limit
+    await saveMessage(sessionId, 'user', userContent, null);
 
     const imageParts = capturedImages.map((img) => ({ mimeType: img.mimeType, data: img.data }));
 
@@ -509,6 +511,8 @@ ${sessionSummary}${slimCsvBlock}
     ]);
 
     abortRef.current = false;
+    const ac = new AbortController();
+    abortControllerRef.current = ac;
 
     let fullContent = '';
     let groundingData = null;
@@ -529,6 +533,7 @@ ${sessionSummary}${slimCsvBlock}
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ prompt: args.prompt, anchor_image_base64: anchor }),
+              signal: ac.signal,
             })
               .then(async (r) => {
                 const text = await r.text();
@@ -601,14 +606,21 @@ ${sessionSummary}${slimCsvBlock}
         }
       }
     } catch (err) {
-      const is429 = /429|quota|rate.?limit/i.test(String(err?.message || ''));
-      const errText = is429
-        ? '**Rate limit exceeded.** The API has a 5 RPM / 20 RPD free-tier limit. Please wait 1–2 minutes before sending another message, or try tomorrow when the daily quota resets. You can also set `REACT_APP_GEMINI_MODEL=gemini-3-flash` in `.env` to use a different model with separate quota.'
-        : `Error: ${err.message}`;
-      setMessages((m) =>
-        m.map((msg) => (msg.id === assistantId ? { ...msg, content: errText } : msg))
-      );
-      fullContent = errText;
+      if (err.name === 'AbortError' || abortRef.current) {
+        setMessages((m) =>
+          m.map((msg) => (msg.id === assistantId ? { ...msg, content: '*(Generation stopped)*' } : msg))
+        );
+        fullContent = '*(Generation stopped)*';
+      } else {
+        const is429 = /429|quota|rate.?limit/i.test(String(err?.message || ''));
+        const errText = is429
+          ? '**Rate limit exceeded.** The API has a 5 RPM / 20 RPD free-tier limit. Please wait 1–2 minutes before sending another message, or try tomorrow when the daily quota resets. You can also set `REACT_APP_GEMINI_MODEL=gemini-3-flash` in `.env` to use a different model with separate quota.'
+          : `Error: ${err.message}`;
+        setMessages((m) =>
+          m.map((msg) => (msg.id === assistantId ? { ...msg, content: errText } : msg))
+        );
+        fullContent = errText;
+      }
     }
 
     if (groundingData) {
@@ -617,18 +629,20 @@ ${sessionSummary}${slimCsvBlock}
       );
     }
 
-    // Save plain text + any tool charts to DB
+    // Save plain text + any tool charts to DB (strip large base64 to stay under MongoDB 16MB limit)
+    const stripBase64 = (obj) => {
+      if (!obj || typeof obj !== 'object') return obj;
+      if (obj.imageBase64) return { ...obj, imageBase64: '(stored in browser)', mimeType: obj.mimeType, fallback: obj.fallback };
+      return obj;
+    };
     const savedContent = structuredParts
       ? structuredParts.filter((p) => p.type === 'text').map((p) => p.text).join('\n')
       : fullContent;
-    await saveMessage(
-      sessionId,
-      'model',
-      savedContent,
-      null,
-      toolCharts.length ? toolCharts : null,
-      toolCalls.length ? toolCalls : null
-    );
+    const savedCharts = toolCharts.length ? toolCharts.map(stripBase64) : null;
+    const savedCalls = toolCalls.length
+      ? toolCalls.map((tc) => ({ ...tc, result: stripBase64(tc.result) }))
+      : null;
+    await saveMessage(sessionId, 'model', savedContent, null, savedCharts, savedCalls);
 
     setSessions((prev) =>
       prev.map((s) => (s.id === sessionId ? { ...s, messageCount: s.messageCount + 2 } : s))
